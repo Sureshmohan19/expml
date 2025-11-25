@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: expml
+Version: 0.0.1
+Summary: terminal-based ML experiment tracker 🎧
+Author-email: Suresh Neethimohan <mohansuresh333@gmail.com>
+Requires-Python: >=3.10
+Requires-Dist: psutil
