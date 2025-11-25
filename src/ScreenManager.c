@@ -30,6 +30,8 @@ struct ScreenManager_ {
     bool show_help;
 
     char* header_text;
+    char* start_time;
+    char* end_time;
     FunctionBar* function_bar;
     
     double last_refresh;
@@ -51,9 +53,9 @@ ScreenManager* ScreenManager_new(const char* header_text, double refresh_interva
     ScreenManager* this = (ScreenManager*)calloc(1, sizeof(ScreenManager));
     if (!this) return NULL;
     
-    this->x1 = 0;
-    this->y1 = 1;  // Header row
-    this->x2 = 0;
+    this->x1 = 1;
+    this->y1 = 2;  // Header row
+    this->x2 = -1;
     this->y2 = -2; // Footer rows (FunctionBar)
     
     this->layouts = NULL;
@@ -65,6 +67,8 @@ ScreenManager* ScreenManager_new(const char* header_text, double refresh_interva
     this->show_help = false;
 
     if (header_text) this->header_text = strdup(header_text);
+    this->start_time = NULL;
+    this->end_time = NULL;
     this->function_bar = NULL;
     
     this->last_refresh = getCurrentTime();
@@ -79,6 +83,8 @@ void ScreenManager_delete(ScreenManager* this) {
     if (!this) return;
     
     free(this->header_text);
+    free(this->start_time);
+    free(this->end_time);
     // FunctionBar is owned by caller usually, but if we wanted to own it:
     // FunctionBar_delete(this->function_bar); 
     
@@ -150,9 +156,13 @@ void ScreenManager_resize(ScreenManager* this) {
             }
         }
         
+        // Tell panel if it should draw right separator (not for last panel)
+        bool draw_right_sep = (i < this->panel_count - 1);
+        
         // Apply real resizing
         Panel_move(this->layouts[i].panel, current_x, y_start);
         Panel_resize(this->layouts[i].panel, w, height);
+        Panel_setDrawRightSeparator(this->layouts[i].panel, draw_right_sep);
         
         current_x += w;
     }
@@ -189,12 +199,34 @@ void ScreenManager_setRefreshCallback(ScreenManager* this, ScreenManager_OnRefre
 }
 
 static void drawHeader(ScreenManager* this) {
-    if (!this->header_text) return;
-    
+    // Line 0: Main title
     attron(Terminal_colors[PANEL_HEADER]);
-    mvhline(0, 0, ' ', COLS); 
-    mvprintw(0, 0, " %s", this->header_text); // Added a space padding
+    mvhline(0, 0, ' ', COLS);
+    
+    if (this->header_text) {
+        mvprintw(0, 1, "%s", this->header_text);
+    } else {
+        mvprintw(0, 1, "Running Experiment...");
+    }
+    
     attroff(Terminal_colors[PANEL_HEADER]);
+    
+    // Line 1: Timestamps (if available)
+    if (this->start_time || this->end_time) {
+        attron(Terminal_colors[TEXT_DIM]);
+        mvhline(1, 0, ' ', COLS);
+        
+        int col = 1;
+        if (this->start_time) {
+            mvprintw(1, col, "Started: %s", this->start_time);
+            col += strlen("Started: ") + strlen(this->start_time) + 3;
+        }
+        if (this->end_time) {
+            mvprintw(1, col, "Ended: %s", this->end_time);
+        }
+        
+        attroff(Terminal_colors[TEXT_DIM]);
+    }
 }
 
 void ScreenManager_forceRedraw(ScreenManager* this) {
@@ -386,4 +418,16 @@ int ScreenManager_run(ScreenManager* this) {
 Panel* ScreenManager_getPanel(const ScreenManager* this, size_t index) {
     if (!this || index >= this->panel_count) return NULL;
     return this->layouts[index].panel;
+}
+
+void ScreenManager_setStartTime(ScreenManager* this, const char* time) {
+    if (!this) return;
+    free(this->start_time);
+    this->start_time = time ? strdup(time) : NULL;
+}
+
+void ScreenManager_setEndTime(ScreenManager* this, const char* time) {
+    if (!this) return;
+    free(this->end_time);
+    this->end_time = time ? strdup(time) : NULL;
 }

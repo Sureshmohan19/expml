@@ -52,7 +52,8 @@ struct Panel_ {
    int item_height;
    bool needs_redraw;
    bool has_focus;      
-   
+   bool draw_right_separator; 
+    
    Panel_EventHandler event_handler;
    Panel_DrawItem draw_item;
    Panel_ItemCleanup cleanup_item;
@@ -93,6 +94,7 @@ void Panel_setSelected(Panel* this, int index);
 void Panel_draw(Panel* this, bool force_redraw);
 bool Panel_onKey(Panel* this, int key);
 void Panel_setNeedsRedraw(Panel* this);
+void Panel_setDrawRightSeparator(Panel* this, bool draw);
 
 // Focus management (Missing piece we added)
 void Panel_setFocus(Panel* this, bool focus);

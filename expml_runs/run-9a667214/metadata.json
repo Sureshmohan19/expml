@@ -1,0 +1,14 @@
+{
+  "user": "root",
+  "host": "ubuntu",
+  "os": "Linux-5.15.0-113-generic-x86_64-with-glibc2.35",
+  "python": "3.10.19",
+  "cpu_count": 2,
+  "gpu_count": 0,
+  "gpu_name": "N/A",
+  "disk_total": "96.7GB",
+  "ram_total": "7.8GB",
+  "command": "rnn_expml.py",
+  "id": "9a667214",
+  "name": "run-9a667214"
+}

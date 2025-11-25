@@ -44,7 +44,8 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     this->item_height = 1;
     this->needs_redraw = true;
     this->has_focus = false;
-    
+    this->draw_right_separator = false;
+
     this->event_handler = NULL;
     this->draw_item = NULL;
     this->cleanup_item = NULL;
@@ -304,32 +305,61 @@ static void drawDefaultItem(Panel* this, int index, int y, int x, int w, bool se
 
 void Panel_draw(Panel* this, bool force_redraw) {
     if (!this) return;
-    
+
     if (!this->needs_redraw && !force_redraw) return;
-    
+
     int y_pos = this->y;
     int available_height = this->h;
-    
-    // 1. Draw Header
+
+    // 1. Draw Header (Always colored now, with selection indicator)
     if (this->header) {
-        attron(Terminal_colors[this->has_focus ? PANEL_HEADER : TEXT_DIM]);
+        attron(Terminal_colors[PANEL_HEADER]);
         mvhline(y_pos, this->x, ' ', this->w); // Clear Header Background
-        mvprintw(y_pos, this->x, "%.*s", this->w - 1, this->header);
-        attroff(Terminal_colors[this->has_focus ? PANEL_HEADER : TEXT_DIM]);
+
+        // Truncate header if too long
+        int max_header_len = this->w - 12; // Reserve space for " (Selected)"
+        if (this->has_focus && max_header_len > 0) {
+            char truncated[256];
+            int header_len = strlen(this->header);
+            if (header_len > max_header_len) {
+                snprintf(truncated, sizeof(truncated), "%.*s... (Selected)", max_header_len - 3, this->header);
+            } else {
+                snprintf(truncated, sizeof(truncated), "%s (Selected)", this->header);
+            }
+            mvprintw(y_pos, this->x + 1, "%s", truncated);
+        } else {
+            // Not focused - just show header, truncate if needed
+            if (strlen(this->header) > (size_t)(this->w - 2)) {
+                mvprintw(y_pos, this->x + 1, "%.*s...", this->w - 5, this->header);
+            } else {
+                mvprintw(y_pos, this->x + 1, "%s", this->header);
+            }
+        }
+
+        attroff(Terminal_colors[PANEL_HEADER]);
         y_pos++;
         available_height--;
     }
-    
-    // 2. Draw Top Border (Horizontal)
+
+    // 2. Draw Top Border (Horizontal line that extends above content)
     attron(Terminal_colors[this->has_focus ? PANEL_BORDER_ACTIVE : PANEL_BORDER]);
-    mvhline(y_pos, this->x, ACS_HLINE, this->w - 1); // -1 to save spot for corner/intersection
+
+    // Draw the line, accounting for right separator
+    int border_width = this->draw_right_separator ? this->w : this->w - 1;
+    mvhline(y_pos, this->x, ACS_HLINE, border_width);
+
+    // If we have a right separator, draw the T-junction
+    if (this->draw_right_separator) {
+        mvaddch(y_pos, this->x + this->w - 1, ACS_TTEE);
+    }
+
     attroff(Terminal_colors[this->has_focus ? PANEL_BORDER_ACTIVE : PANEL_BORDER]);
     y_pos++;
     available_height--;
-    
+
     // 3. Calculate Scroll & Visible Range
     int size = (int)this->item_count;
-    
+
     // Calculate how many full items fit in the height
     int visible_items = available_height / this->item_height;
     if (visible_items < 1) visible_items = 1;
@@ -341,53 +371,61 @@ void Panel_draw(Panel* this, bool force_redraw) {
         this->scroll_v = this->selected - visible_items + 1;
     }
     this->scroll_v = CLAMP(this->scroll_v, 0, MAX(0, size - visible_items));
-    
+
     int first = this->scroll_v;
     int last = MIN(first + visible_items, size);
-    
-    int content_width = this->w - 2; 
+
+    // Adjust content width for right separator
+    int content_width = this->draw_right_separator ? this->w - 1 : this->w - 2;
 
     // 4. Draw Items
-    // We loop through ITEMS, not rows
     for (int i = first; i < last; i++) {
-        // Calculate the screen Y position for the top of this item
         int relative_index = i - first;
         int item_y = y_pos + (relative_index * this->item_height);
-        
+
         bool is_selected = (i == this->selected);
-        
+
         if (this->draw_item) {
-            // Pass the specific item height to the drawer
-            // Note: We pass 'this->item_height' as the 'w' param? No, keep 'content_width'
-            // The drawer knows the height from the panel or we should update the typedef.
-            // For now, the drawer assumes it can draw up to panel->item_height.
             this->draw_item(this, i, item_y, this->x, content_width, is_selected);
         } else {
             drawDefaultItem(this, i, item_y, this->x, content_width, is_selected);
         }
+
+        // Draw right separator for each content row
+        if (this->draw_right_separator) {
+            for (int row = 0; row < this->item_height; row++) {
+                attron(Terminal_colors[PANEL_BORDER]);
+                mvaddch(item_y + row, this->x + this->w - 1, ACS_VLINE);
+                attroff(Terminal_colors[PANEL_BORDER]);
+            }
+        }
     }
-    
+
     // Fill remaining empty space at bottom
     int drawn_height = (last - first) * this->item_height;
     for (int y = drawn_height; y < available_height; y++) {
-         mvhline(y_pos + y, this->x, ' ', this->w - 1);
-         // Draw Right Separator
-         attron(Terminal_colors[PANEL_BORDER]);
-         mvaddch(y_pos + y, this->x + this->w - 1, ACS_VLINE); 
-         attroff(Terminal_colors[PANEL_BORDER]);
+        int line_width = this->draw_right_separator ? this->w - 1 : this->w - 2;
+        mvhline(y_pos + y, this->x, ' ', line_width);
+
+        // Draw Right Separator for empty rows too
+        if (this->draw_right_separator) {
+            attron(Terminal_colors[PANEL_BORDER]);
+            mvaddch(y_pos + y, this->x + this->w - 1, ACS_VLINE);
+            attroff(Terminal_colors[PANEL_BORDER]);
+        }
     }
-    
+
     // 5. Draw Scrollbar Indicator (if needed)
     if (size > available_height) {
         int scrollbar_pos = (this->scroll_v * (available_height - 1)) / MAX(1, size - 1);
         int scrollbar_y = y_pos + scrollbar_pos;
-        
+
         attron(Terminal_colors[PANEL_BORDER]);
-        // Draw scrollbar just inside the vertical separator
-        mvaddch(scrollbar_y, this->x + this->w - 2, ACS_CKBOARD); 
+        int scrollbar_x = this->draw_right_separator ? this->w - 2 : this->w - 2;
+        mvaddch(scrollbar_y, this->x + scrollbar_x, ACS_CKBOARD);
         attroff(Terminal_colors[PANEL_BORDER]);
     }
-    
+
     this->needs_redraw = false;
 }
 
@@ -486,6 +524,13 @@ void Panel_setNeedsRedraw(Panel* this) {
 void Panel_setFocus(Panel* this, bool focus) {
     if (this) {
         this->has_focus = focus;
+        this->needs_redraw = true;
+    }
+}
+
+void Panel_setDrawRightSeparator(Panel* this, bool draw) {
+    if (this) {
+        this->draw_right_separator = draw;
         this->needs_redraw = true;
     }
 }

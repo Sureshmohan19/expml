@@ -101,5 +101,10 @@ typedef void (*ScreenManager_OnRefresh)(void* userdata);
 
 // Add this function declaration
 void ScreenManager_setRefreshCallback(ScreenManager* this, ScreenManager_OnRefresh callback, void* userdata);
+/*
+ * Set start and end timestamps
+ */
+void ScreenManager_setStartTime(ScreenManager* this, const char* time);
+void ScreenManager_setEndTime(ScreenManager* this, const char* time);
 
 #endif

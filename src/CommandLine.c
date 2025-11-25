@@ -49,13 +49,16 @@ typedef struct {
 static void on_refresh(void* userdata) {
     AppContext* ctx = (AppContext*)userdata;
     
+    // Save metrics panel selection before clearing
+    int saved_metrics_selection = Panel_getSelectedIndex(ctx->metricsPanel);
+    
     // 1. Reload Metrics (Stream)
-    // Note: In a production app, we would track file offset to avoid re-reading the whole file.
-    // For v0.0.1, re-reading is acceptable for small experiments.
     DataLoader_loadMetrics(ctx->run_path, ctx->metricsPanel, ctx->systemPanel);
     
+    // Restore metrics panel selection
+    Panel_setSelected(ctx->metricsPanel, saved_metrics_selection);
+    
     // 2. Reload Static Data (Summary/Config updates)
-    // We re-read summary.json to get the latest status/runtime
     RunSummary* summary = Storage_readSummary(ctx->run_path);
     RunConfig* config = Storage_readConfig(ctx->run_path);
     RunMetadata* meta = Storage_readMetadata(ctx->run_path);
@@ -66,7 +69,6 @@ static void on_refresh(void* userdata) {
 
     // 3. Update Status Bar Live
     if (summary) {
-        // Using '|' instead of bullet char to avoid artifacts
         FunctionBar_setContext(ctx->funcBar, 
             "State: %s | Runtime: %.0fs | Step: %d", 
             summary->status ? summary->status : "UNKNOWN", 
@@ -92,12 +94,29 @@ static void runTUI(const char* expml_dir) {
            fprintf(stderr, "       Directory '%s' does not exist.\n", expml_dir);
        }
        return;
-   } 
-
+   }
+   
+   // 2. Load initial data to get experiment name
+   RunMetadata* meta = Storage_readMetadata(run_path);
+   RunSummary* summary = Storage_readSummary(run_path);
+   
+    // Determine header text
+   char header_text[256];
+   if (meta && meta->run_name) {
+       snprintf(header_text, sizeof(header_text), "%s", meta->run_name);
+   } else if (summary && strcmp(summary->status, "FINISHED") == 0) {
+       snprintf(header_text, sizeof(header_text), "Experiment Snapshot");
+   } else {
+       snprintf(header_text, sizeof(header_text), "Running Experiment");
+   }
+   
    // 3. Initialize Terminal
    Terminal_init(true);
-   // We start with a generic header; on_refresh will update it via panels later if needed
-   ScreenManager* sm = ScreenManager_new("Waiting for data...", 1.0); 
+   ScreenManager* sm = ScreenManager_new(header_text, 1.0);
+   
+   // Cleanup initial load
+   Storage_freeRunMetadata(meta);
+   Storage_freeRunSummary(summary);
 
    const char* keys[] = {"F1", "h", "q", "F10", NULL};
    const char* labels[] = {"Help", "Help", "Quit", "Quit", NULL};
@@ -105,22 +124,21 @@ static void runTUI(const char* expml_dir) {
    FunctionBar* fb = FunctionBar_new(keys, labels);
    ScreenManager_setFunctionBar(sm, fb);
    
-   // 5. Add Panels
+   // 5. Add Panels with equal left/right widths
 
-   // LEFT: Run Overview (REAL DATA)
+   // LEFT: Run Overview - 35 width
    Panel* runPanel = RunPanel_new(0, 0, 0, 0);
-   // Populate it!
-   ScreenManager_addPanel(sm, runPanel, 45);
+   ScreenManager_addPanel(sm, runPanel, 35);
 
-   // MIDDLE: Metrics (Still Fake for now)
+    // MIDDLE: Metrics - flexible (remaining space)
    Panel* metricsPanel = MetricsPanel_new(0, 0, 0, 0);
    ScreenManager_addPanel(sm, metricsPanel, 0);
 
-   // RIGHT: System Metrics (Still Fake for now)
+   // RIGHT: System Metrics - 35 width
    Panel* systemPanel = SystemPanel_new(0, 0, 0, 0);
    ScreenManager_addPanel(sm, systemPanel, 35);
 
-    // 5. SETUP LIVE REFRESH
+    // 6. SETUP LIVE REFRESH
    AppContext ctx;
    ctx.run_path = run_path;
    ctx.runPanel = runPanel;
@@ -133,10 +151,10 @@ static void runTUI(const char* expml_dir) {
    // Trigger one load immediately
    on_refresh(&ctx);
 
-   // 6. Run Loop
+   // 7. Run Loop
    ScreenManager_run(sm);
 
-   // ... (Cleanup) ...
+   // 8. Cleanup
    ScreenManager_delete(sm);
    Terminal_done(); 
    free(run_path);
