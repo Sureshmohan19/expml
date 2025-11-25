@@ -47,20 +47,22 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     
     this->event_handler = NULL;
     this->draw_item = NULL;
+    this->cleanup_item = NULL;
     this->user_data = NULL;
     
     return this;
 }
 
 void Panel_delete(Panel* this) {
-    if (!this) {
-        return;
-    }
+    if (!this) return;
     
     free(this->header);
     
-    // Free all items
+    // Use the same logic as clear to free items
     for (size_t i = 0; i < this->item_count; i++) {
+        if (this->cleanup_item && this->items[i].data) {
+            this->cleanup_item(this->items[i].data);
+        }
         free(this->items[i].text);
     }
     free(this->items);
@@ -125,6 +127,10 @@ void Panel_setItemHeight(Panel* this, int h) {
         this->item_height = h;
         this->needs_redraw = true;
     }
+}
+
+void Panel_setCleanupCallback(Panel* this, Panel_ItemCleanup callback) {
+    if (this) this->cleanup_item = callback;
 }
 
 int Panel_addItem(Panel* this, const char* text, void* data) {
@@ -210,11 +216,14 @@ bool Panel_removeItem(Panel* this, int index) {
 }
 
 void Panel_clear(Panel* this) {
-    if (!this) {
-        return;
-    }
+    if (!this) return;
     
     for (size_t i = 0; i < this->item_count; i++) {
+        // 1. Free User Data if callback exists
+        if (this->cleanup_item && this->items[i].data) {
+            this->cleanup_item(this->items[i].data);
+        }
+        // 2. Free Text
         free(this->items[i].text);
     }
     

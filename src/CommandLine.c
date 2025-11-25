@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L // Required for access() and F_OK
+
 #include "CommandLine.h"
 #include "Storage.h"
 #include "Terminal.h"
@@ -15,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define VERSION "0.1.0"
 #define PROGRAM_NAME "expml"
@@ -39,6 +42,7 @@ typedef struct {
     Panel* runPanel;
     Panel* metricsPanel;
     Panel* systemPanel;
+    FunctionBar* funcBar;
 } AppContext;
 
 // callback function
@@ -55,11 +59,22 @@ static void on_refresh(void* userdata) {
     RunSummary* summary = Storage_readSummary(ctx->run_path);
     RunConfig* config = Storage_readConfig(ctx->run_path);
     RunMetadata* meta = Storage_readMetadata(ctx->run_path);
-    
+
     if (summary || config || meta) {
          RunPanel_setData(ctx->runPanel, config, meta, summary);
     }
-    
+
+    // 3. Update Status Bar Live
+    if (summary) {
+        // Using '|' instead of bullet char to avoid artifacts
+        FunctionBar_setContext(ctx->funcBar, 
+            "State: %s | Runtime: %.0fs | Step: %d", 
+            summary->status ? summary->status : "UNKNOWN", 
+            summary->runtime, 
+            summary->step
+        );
+    }
+
     // Cleanup temporary structs
     Storage_freeRunSummary(summary);
     Storage_freeRunConfig(config);
@@ -67,21 +82,26 @@ static void on_refresh(void* userdata) {
 }
 
 static void runTUI(const char* expml_dir) {
-   // 1. Find Latest Run
+    printf("DEBUG: Searching for latest run in directory: '%s'\n", expml_dir);
+
+   // 1. Find Run Path
    char* run_path = Storage_findLatestRun(expml_dir);
    if (!run_path) {
-      // Fallback for testing if no symlink exists yet
-      // In production you might want to error out, but for now:
-      run_path = strdup("expml/run-12345"); // Use your mock dir
-   }
+       fprintf(stderr, "ERROR: Could not resolve 'latest-run' in '%s'\n", expml_dir);
+       if (access(expml_dir, F_OK) != 0) {
+           fprintf(stderr, "       Directory '%s' does not exist.\n", expml_dir);
+       }
+       return;
+   } 
 
    // 3. Initialize Terminal
    Terminal_init(true);
    // We start with a generic header; on_refresh will update it via panels later if needed
    ScreenManager* sm = ScreenManager_new("Waiting for data...", 1.0); 
 
-   const char* keys[] = {"F10", "q", NULL};
-   const char* labels[] = {"Quit", "Quit", NULL};
+   const char* keys[] = {"F1", "h", "q", "F10", NULL};
+   const char* labels[] = {"Help", "Help", "Quit", "Quit", NULL};
+
    FunctionBar* fb = FunctionBar_new(keys, labels);
    ScreenManager_setFunctionBar(sm, fb);
    
@@ -106,7 +126,8 @@ static void runTUI(const char* expml_dir) {
    ctx.runPanel = runPanel;
    ctx.metricsPanel = metricsPanel;
    ctx.systemPanel = systemPanel;
-   
+   ctx.funcBar = fb;
+
    ScreenManager_setRefreshCallback(sm, on_refresh, &ctx);
    
    // Trigger one load immediately
@@ -143,7 +164,7 @@ static CommandStatus parseCommand(int argc, char** argv) {
    // Handle commands
    if (strcmp(command, "run") == 0) {
       // Check for -p option
-      const char* expml_dir = "expml"; // Default directory
+      const char* expml_dir = "expml_runs"; // Default directory
       
       if (argc > 2 && strcmp(argv[2], "-p") == 0) {
          if (argc < 4) {

@@ -30,6 +30,9 @@ typedef struct PanelItem_ {
    void* data;
 } PanelItem;
 
+// Function pointer for cleaning up user data
+typedef void (*Panel_ItemCleanup)(void* data);
+
 /*
  * Panel Struct
  */
@@ -52,6 +55,7 @@ struct Panel_ {
    
    Panel_EventHandler event_handler;
    Panel_DrawItem draw_item;
+   Panel_ItemCleanup cleanup_item;
    void* user_data;
 };
 
@@ -95,5 +99,6 @@ void Panel_setFocus(Panel* this, bool focus);
 
 // Set the height (in rows) of a single item. Default is 1.
 void Panel_setItemHeight(Panel* this, int h);
+void Panel_setCleanupCallback(Panel* this, Panel_ItemCleanup callback);
 
 #endif

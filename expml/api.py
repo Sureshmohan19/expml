@@ -16,7 +16,7 @@ class ActiveRun:
         self.start_time = time.time()
         
         # Setup Directory
-        self.root_dir = "expml" # Default
+        self.root_dir = "expml_runs" # Default
         self.run_dir = os.path.join(self.root_dir, self.name)
         os.makedirs(self.run_dir, exist_ok=True)
         
@@ -41,7 +41,7 @@ class ActiveRun:
         # Start Monitor
         self.monitor.start(lambda: self.step)
         
-        print(f"🚀 expml: Run {self.name} initialized")
+        print(f" expml: Run {self.name} initialized")
 
     def log(self, metrics):
         self.step += 1
@@ -72,7 +72,7 @@ class ActiveRun:
             "status": "FINISHED",
             "_runtime": time.time() - self.start_time
         })
-        print(f"✅ expml: Run {self.name} finished")
+        print(f" expml: Run {self.name} finished")
 
 # --- Public API Functions ---
 

@@ -107,15 +107,19 @@ void DataLoader_loadMetrics(const char* run_path, Panel* metricsPanel, Panel* sy
                 char* display_name = s->key + 7; // Skip "system/" prefix
                 char val_str[32];
                 
-                // Simple auto-formatting
+                // Formatting Polish
                 if (strstr(display_name, "percent") || strstr(display_name, "util") || strstr(display_name, "load")) {
+                     // Percents: 12.5%
                      snprintf(val_str, 32, "%.1f%%", current);
                 } else if (strstr(display_name, "gb") || strstr(display_name, "ram")) {
-                     snprintf(val_str, 32, "%.1fGB", current);
+                     // RAM: 12.50GB (fixed width for stability)
+                     snprintf(val_str, 32, "%.2fGB", current);
                 } else if (strstr(display_name, "temp")) {
-                     snprintf(val_str, 32, "%.1f°C", current);
+                     // Temp: 65°C
+                     snprintf(val_str, 32, "%.0f°C", current);
                 } else {
-                     snprintf(val_str, 32, "%.2f", current);
+                     // Generic: 4 decimals to match MetricsPanel style
+                     snprintf(val_str, 32, "%.4f", current);
                 }
 
                 char buffer[128];

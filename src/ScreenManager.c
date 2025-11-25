@@ -27,7 +27,8 @@ struct ScreenManager_ {
     
     bool allow_focus_change;
     bool quit;
-    
+    bool show_help;
+
     char* header_text;
     FunctionBar* function_bar;
     
@@ -61,7 +62,8 @@ ScreenManager* ScreenManager_new(const char* header_text, double refresh_interva
     
     this->allow_focus_change = true;
     this->quit = false;
-    
+    this->show_help = false;
+
     if (header_text) this->header_text = strdup(header_text);
     this->function_bar = NULL;
     
@@ -213,6 +215,64 @@ void ScreenManager_forceRedraw(ScreenManager* this) {
     refresh();
 }
 
+static void drawHelp(ScreenManager* this) {
+    int w = 50;
+    int h = 14;
+    int x = (COLS - w) / 2;
+    int y = (LINES - h) / 2;
+
+    // Draw Box Background & Border
+    attron(Terminal_colors[PANEL_BACKGROUND]);
+    for (int i = 0; i < h; i++) {
+        mvhline(y + i, x, ' ', w);
+    }
+    
+    attron(Terminal_colors[PANEL_BORDER_ACTIVE]);
+    mvhline(y, x, ACS_HLINE, w);
+    mvhline(y + h - 1, x, ACS_HLINE, w);
+    mvvline(y, x, ACS_VLINE, h);
+    mvvline(y, x + w - 1, ACS_VLINE, h);
+    
+    // Corners
+    mvaddch(y, x, ACS_ULCORNER);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+    
+    // Title
+    attron(A_BOLD);
+    mvprintw(y, x + 2, " Help ");
+    attroff(A_BOLD);
+    attroff(Terminal_colors[PANEL_BORDER_ACTIVE]);
+
+    // Content
+    int text_x = x + 4;
+    int text_y = y + 2;
+    
+    attron(Terminal_colors[TEXT_NORMAL]);
+    
+    attron(A_BOLD); mvprintw(text_y++, text_x, "Navigation"); attroff(A_BOLD);
+    mvprintw(text_y++, text_x, "  TAB / Arrows : Switch Panels");
+    mvprintw(text_y++, text_x, "  j / k        : Scroll Down/Up");
+    mvprintw(text_y++, text_x, "  Down / Up    : Scroll Down/Up");
+    mvprintw(text_y++, text_x, "  PgUp / PgDn  : Scroll Page");
+    mvprintw(text_y++, text_x, "  Home / End   : Jump to Top/Bottom");
+    
+    text_y++; // Spacer
+    
+    attron(A_BOLD); mvprintw(text_y++, text_x, "General"); attroff(A_BOLD);
+    mvprintw(text_y++, text_x, "  h / F1       : Toggle this Help");
+    mvprintw(text_y++, text_x, "  q / F10      : Quit");
+    
+    text_y++;
+    attron(Terminal_colors[TEXT_DIM]);
+    mvprintw(text_y++, text_x, "Press any key to close...");
+    attroff(Terminal_colors[TEXT_DIM]);
+    
+    attroff(Terminal_colors[TEXT_NORMAL]);
+    attroff(Terminal_colors[PANEL_BACKGROUND]);
+}
+
 int ScreenManager_run(ScreenManager* this) {
     if (!this) return -1;
     
@@ -224,9 +284,23 @@ int ScreenManager_run(ScreenManager* this) {
         timeout(100); // Wait up to 100ms for key
         ch = Terminal_readKey();
         
-        bool handled = false;
-        
-        if (ch != ERR) {
+        // --- HELP MODE LOGIC ---
+        if (this->show_help) {
+            if (ch != ERR) {
+                // Specific check for resize to prevent artifacts
+                if (ch == KEY_RESIZE) {
+                    ScreenManager_resize(this);
+                } else {
+                    // Any other key closes help
+                    this->show_help = false;
+                }
+                force_redraw = true;
+            }
+        } 
+        // --- NORMAL MODE LOGIC ---
+        else if (ch != ERR) {
+            bool handled = false;
+
             // Global keys
             if (ch == KEY_RESIZE) {
                 ScreenManager_resize(this);
@@ -234,6 +308,10 @@ int ScreenManager_run(ScreenManager* this) {
                 handled = true;
             } else if (ch == 'q' || ch == KEY_F(10)) {
                 this->quit = true;
+                handled = true;
+            } else if (ch == 'h' || ch == KEY_F(1)) {
+                this->show_help = true;
+                force_redraw = true;
                 handled = true;
             } else if (ch == '\t') { // Tab cycles focus
                 size_t next = (this->focused + 1) % this->panel_count;
@@ -257,11 +335,8 @@ int ScreenManager_run(ScreenManager* this) {
             // If not global, pass to Focused Panel
             if (!handled && this->panel_count > 0) {
                 Panel* p = this->layouts[this->focused].panel;
-                // We assume Panel_onKey returns bool (true if handled)
-                // You can expand this if Panel_onKey returns a complex struct
                 if (Panel_onKey(p, ch)) {
-                    // If panel consumed the key, it likely needs a redraw
-                    // Panel handles its own internal state, but we might need to refresh screen
+                    // If panel consumed the key, it might need a redraw
                 }
             }
         }
@@ -282,17 +357,22 @@ int ScreenManager_run(ScreenManager* this) {
             }
             force_redraw = true; // Ensure screen updates
         }
-
+        
         // 3. Draw
         drawHeader(this);
         
         for (size_t i = 0; i < this->panel_count; i++) {
-            // Panel_draw checks internal 'needs_redraw' flag, so it's efficient to call often
+            // Panel_draw checks internal 'needs_redraw' flag
             Panel_draw(this->layouts[i].panel, force_redraw);
         }
         
         if (this->function_bar) {
             FunctionBar_draw(this->function_bar, COLS);
+        }
+
+        // DRAW POPUP ON TOP
+        if (this->show_help) {
+            drawHelp(this);
         }
         
         refresh();
@@ -301,6 +381,7 @@ int ScreenManager_run(ScreenManager* this) {
     
     return 0;
 }
+
 
 Panel* ScreenManager_getPanel(const ScreenManager* this, size_t index) {
     if (!this || index >= this->panel_count) return NULL;

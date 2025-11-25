@@ -8,6 +8,8 @@
 
 #define ITEM_HEIGHT 4
 
+static void MetricsPanel_cleanup(void* data);
+
 typedef struct {
     char* name;
     float current_value;
@@ -90,6 +92,10 @@ Panel* MetricsPanel_new(int x, int y, int w, int h) {
     
     Panel_setItemHeight(p, ITEM_HEIGHT); // Set height to 4
     Panel_setDrawItem(p, MetricsPanel_drawItem);
+    
+    // Register cleanup
+    Panel_setCleanupCallback(p, MetricsPanel_cleanup);
+
     return p;
 }
 
@@ -112,4 +118,13 @@ void MetricsPanel_addMetric(Panel* this, const char* name, float current_val, co
     }
 
     Panel_addItem(this, name, m);
+}
+
+static void MetricsPanel_cleanup(void* data) {
+    MetricData* m = (MetricData*)data;
+    if (m) {
+        free(m->name);
+        free(m->history); // <--- The big array we were leaking
+        free(m);
+    }
 }
