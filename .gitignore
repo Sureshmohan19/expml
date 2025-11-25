@@ -1,1 +1,71 @@
+##############################
+# Python
+##############################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Packaging
 build/
+dist/
+*.egg-info/
+.eggs/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.cache
+pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Django / Flask / FastAPI
+*.log
+instance/
+*.sqlite3
+
+##############################
+# C / C++
+##############################
+# Compiled object files and binaries
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.out
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# build artifacts
+build/
+*.dSYM/
+*.obj
+
+##############################
+# General
+##############################
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.bak
+
