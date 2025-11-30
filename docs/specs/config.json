@@ -1,0 +1,11 @@
+{
+  "hidden_size": 8,
+  "vocab_size": 8,
+  "num_layers": 1,
+  "learning_rate": 0.01,
+  "text_length": 11,
+  "epoch": 20,
+  "simulation": true,
+  "model_type": "rnn"
+}
+

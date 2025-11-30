@@ -2,9 +2,9 @@
 #include "Terminal.h"
 
 #include <assert.h>
-#include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ncurses.h>
 
 #define INITIAL_CAPACITY 16
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -13,9 +13,7 @@
 
 Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     Panel* this = (Panel*)calloc(1, sizeof(Panel));
-    if (!this) {
-        return NULL;
-    }
+    if (!this) { return NULL; }
     
     this->x = x;
     this->y = y;
@@ -37,7 +35,6 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     
     this->item_count = 0;
     this->item_capacity = INITIAL_CAPACITY;
-    
     this->selected = 0;
     this->scroll_v = 0;
     this->scroll_h = 0;
@@ -45,7 +42,6 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     this->needs_redraw = true;
     this->has_focus = false;
     this->draw_right_separator = false;
-
     this->event_handler = NULL;
     this->draw_item = NULL;
     this->cleanup_item = NULL;
@@ -56,10 +52,8 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
 
 void Panel_delete(Panel* this) {
     if (!this) return;
-    
     free(this->header);
     
-    // Use the same logic as clear to free items
     for (size_t i = 0; i < this->item_count; i++) {
         if (this->cleanup_item && this->items[i].data) {
             this->cleanup_item(this->items[i].data);
@@ -67,26 +61,19 @@ void Panel_delete(Panel* this) {
         free(this->items[i].text);
     }
     free(this->items);
-    
     free(this);
 }
 
 void Panel_setEventHandler(Panel* this, Panel_EventHandler handler) {
-    if (this) {
-        this->event_handler = handler;
-    }
+    if (this) { this->event_handler = handler; }
 }
 
 void Panel_setDrawItem(Panel* this, Panel_DrawItem draw_item) {
-    if (this) {
-        this->draw_item = draw_item;
-    }
+    if (this) { this->draw_item = draw_item; }
 }
 
 void Panel_setUserData(Panel* this, void* user_data) {
-    if (this) {
-        this->user_data = user_data;
-    }
+    if (this) { this->user_data = user_data; }
 }
 
 void* Panel_getUserData(Panel* this) {
@@ -94,30 +81,21 @@ void* Panel_getUserData(Panel* this) {
 }
 
 void Panel_setHeader(Panel* this, const char* header) {
-    if (!this) {
-        return;
-    }
-    
+    if (!this) { return; }
     free(this->header);
     this->header = header ? strdup(header) : NULL;
     this->needs_redraw = true;
 }
 
 void Panel_move(Panel* this, int x, int y) {
-    if (!this) {
-        return;
-    }
-    
+    if (!this) { return; }
     this->x = x;
     this->y = y;
     this->needs_redraw = true;
 }
 
 void Panel_resize(Panel* this, int w, int h) {
-    if (!this) {
-        return;
-    }
-    
+    if (!this) { return; }
     this->w = w;
     this->h = h;
     this->needs_redraw = true;
@@ -135,23 +113,16 @@ void Panel_setCleanupCallback(Panel* this, Panel_ItemCleanup callback) {
 }
 
 int Panel_addItem(Panel* this, const char* text, void* data) {
-    if (!this || !text) {
-        return -1;
-    }
-    
-    // Grow array if needed
+    if (!this || !text) { return -1; }
     if (this->item_count >= this->item_capacity) {
         size_t new_capacity = this->item_capacity * 2;
         PanelItem* new_items = (PanelItem*)realloc(this->items, 
                                                     new_capacity * sizeof(PanelItem));
-        if (!new_items) {
-            return -1;
-        }
+        if (!new_items) { return -1; }
         this->items = new_items;
         this->item_capacity = new_capacity;
     }
-    
-    // Add item
+
     int index = this->item_count;
     this->items[index].text = strdup(text);
     this->items[index].data = data;
@@ -162,32 +133,24 @@ int Panel_addItem(Panel* this, const char* text, void* data) {
 }
 
 void Panel_insertItem(Panel* this, int index, const char* text, void* data) {
-    if (!this || !text || index < 0) {
-        return;
-    }
-    
+    if (!this || !text || index < 0) { return; }
     if (index >= (int)this->item_count) {
         Panel_addItem(this, text, data);
         return;
     }
     
-    // Grow array if needed
     if (this->item_count >= this->item_capacity) {
         size_t new_capacity = this->item_capacity * 2;
         PanelItem* new_items = (PanelItem*)realloc(this->items, 
                                                     new_capacity * sizeof(PanelItem));
-        if (!new_items) {
-            return;
-        }
+        if (!new_items) { return; }
         this->items = new_items;
         this->item_capacity = new_capacity;
     }
     
-    // Shift items right
     memmove(&this->items[index + 1], &this->items[index], 
             (this->item_count - index) * sizeof(PanelItem));
     
-    // Insert new item
     this->items[index].text = strdup(text);
     this->items[index].data = data;
     this->item_count++;
@@ -195,19 +158,12 @@ void Panel_insertItem(Panel* this, int index, const char* text, void* data) {
 }
 
 bool Panel_removeItem(Panel* this, int index) {
-    if (!this || index < 0 || index >= (int)this->item_count) {
-        return false;
-    }
-    
+    if (!this || index < 0 || index >= (int)this->item_count) { return false; }
     free(this->items[index].text);
-    
-    // Shift items left
     memmove(&this->items[index], &this->items[index + 1], 
             (this->item_count - index - 1) * sizeof(PanelItem));
-    
     this->item_count--;
-    
-    // Adjust selection if needed
+
     if (this->selected >= (int)this->item_count && this->item_count > 0) {
         this->selected = this->item_count - 1;
     }
@@ -217,14 +173,11 @@ bool Panel_removeItem(Panel* this, int index) {
 }
 
 void Panel_clear(Panel* this) {
-    if (!this) return;
-    
+    if (!this) return;    
     for (size_t i = 0; i < this->item_count; i++) {
-        // 1. Free User Data if callback exists
         if (this->cleanup_item && this->items[i].data) {
             this->cleanup_item(this->items[i].data);
         }
-        // 2. Free Text
         free(this->items[i].text);
     }
     
@@ -240,38 +193,28 @@ int Panel_getItemCount(const Panel* this) {
 }
 
 PanelItem* Panel_getItem(Panel* this, int index) {
-    if (!this || index < 0 || index >= (int)this->item_count) {
-        return NULL;
-    }
+    if (!this || index < 0 || index >= (int)this->item_count) { return NULL; }
     return &this->items[index];
 }
 
 PanelItem* Panel_getSelected(Panel* this) {
-    if (!this || this->item_count == 0) {
-        return NULL;
-    }
+    if (!this || this->item_count == 0) { return NULL; }
     return &this->items[this->selected];
 }
 
 int Panel_getSelectedIndex(const Panel* this) {
-    if (!this || this->item_count == 0) {
-        return -1;
-    }
+    if (!this || this->item_count == 0) { return -1; }
     return this->selected;
 }
 
 void Panel_setSelected(Panel* this, int index) {
-    if (!this) {
-        return;
-    }
-    
+    if (!this) { return; }
     int size = (int)this->item_count;
     if (size == 0) {
         this->selected = 0;
         return;
     }
-    
-    // Clamp to valid range
+
     this->selected = CLAMP(index, 0, size - 1);
     this->needs_redraw = true;
 }
@@ -279,17 +222,13 @@ void Panel_setSelected(Panel* this, int index) {
 static void drawDefaultItem(Panel* this, int index, int y, int x, int w, bool selected) {
     PanelItem* item = &this->items[index];
     
-    // Apply selection color if selected
     if (selected) {
         attron(Terminal_colors[this->has_focus ? TEXT_SELECTED : TEXT_DIM]);
     } else {
         attron(Terminal_colors[TEXT_NORMAL]);
     }
     
-    // Clear line
     mvhline(y, x, ' ', w);
-    
-    // Draw text (truncated to width, accounting for scroll)
     int text_len = strlen(item->text);
     if (this->scroll_h < text_len) {
         int display_len = MIN(text_len - this->scroll_h, w);
@@ -305,66 +244,50 @@ static void drawDefaultItem(Panel* this, int index, int y, int x, int w, bool se
 
 void Panel_draw(Panel* this, bool force_redraw) {
     if (!this) return;
-
     if (!this->needs_redraw && !force_redraw) return;
 
     int y_pos = this->y;
     int available_height = this->h;
-
-    // 1. Draw Header (Always colored now, with selection indicator)
+    
     if (this->header) {
-        attron(Terminal_colors[PANEL_HEADER]);
-        mvhline(y_pos, this->x, ' ', this->w); // Clear Header Background
+        int header_color = this->has_focus ? Terminal_colors[PANEL_HEADER] : Terminal_colors[PANEL_HEADER_DIM];        
+        attron(header_color);
+        mvhline(y_pos, this->x, ' ', this->w); 
 
-        // Truncate header if too long
-        int max_header_len = this->w - 12; // Reserve space for " (Selected)"
-        if (this->has_focus && max_header_len > 0) {
-            char truncated[256];
-            int header_len = strlen(this->header);
-            if (header_len > max_header_len) {
-                snprintf(truncated, sizeof(truncated), "%.*s... (Selected)", max_header_len - 3, this->header);
-            } else {
-                snprintf(truncated, sizeof(truncated), "%s (Selected)", this->header);
-            }
-            mvprintw(y_pos, this->x + 1, "%s", truncated);
+        // Remove the focus check - just show the header name
+        if (strlen(this->header) > (size_t)(this->w - 2)) {
+            mvprintw(y_pos, this->x + 1, "%.*s...", this->w - 5, this->header);
         } else {
-            // Not focused - just show header, truncate if needed
-            if (strlen(this->header) > (size_t)(this->w - 2)) {
-                mvprintw(y_pos, this->x + 1, "%.*s...", this->w - 5, this->header);
-            } else {
-                mvprintw(y_pos, this->x + 1, "%s", this->header);
-            }
+            mvprintw(y_pos, this->x + 1, "%s", this->header);
         }
 
-        attroff(Terminal_colors[PANEL_HEADER]);
+        // Add vertical separator on the right if needed
+        if (this->draw_right_separator) {
+            attroff(header_color);
+            attron(Terminal_colors[PANEL_BORDER]);
+            mvaddch(y_pos, this->x + this->w - 1, ACS_VLINE);
+            attroff(Terminal_colors[PANEL_BORDER]);
+            attron(header_color);
+        }
+
+        attroff(header_color);
         y_pos++;
         available_height--;
     }
-
-    // 2. Draw Top Border (Horizontal line that extends above content)
-    attron(Terminal_colors[this->has_focus ? PANEL_BORDER_ACTIVE : PANEL_BORDER]);
-
-    // Draw the line, accounting for right separator
-    int border_width = this->draw_right_separator ? this->w : this->w - 1;
-    mvhline(y_pos, this->x, ACS_HLINE, border_width);
-
-    // If we have a right separator, draw the T-junction
+    // Add blank line after header
+    mvhline(y_pos, this->x, ' ', this->w);
     if (this->draw_right_separator) {
-        mvaddch(y_pos, this->x + this->w - 1, ACS_TTEE);
+        attron(Terminal_colors[PANEL_BORDER]);
+        mvaddch(y_pos, this->x + this->w - 1, ACS_VLINE);
+        attroff(Terminal_colors[PANEL_BORDER]);
     }
-
-    attroff(Terminal_colors[this->has_focus ? PANEL_BORDER_ACTIVE : PANEL_BORDER]);
     y_pos++;
     available_height--;
 
-    // 3. Calculate Scroll & Visible Range
     int size = (int)this->item_count;
-
-    // Calculate how many full items fit in the height
     int visible_items = available_height / this->item_height;
     if (visible_items < 1) visible_items = 1;
 
-    // Adjust scroll
     if (this->selected < this->scroll_v) {
         this->scroll_v = this->selected;
     } else if (this->selected >= this->scroll_v + visible_items) {
@@ -374,15 +297,11 @@ void Panel_draw(Panel* this, bool force_redraw) {
 
     int first = this->scroll_v;
     int last = MIN(first + visible_items, size);
-
-    // Adjust content width for right separator
     int content_width = this->draw_right_separator ? this->w - 1 : this->w - 2;
 
-    // 4. Draw Items
     for (int i = first; i < last; i++) {
         int relative_index = i - first;
         int item_y = y_pos + (relative_index * this->item_height);
-
         bool is_selected = (i == this->selected);
 
         if (this->draw_item) {
@@ -391,7 +310,6 @@ void Panel_draw(Panel* this, bool force_redraw) {
             drawDefaultItem(this, i, item_y, this->x, content_width, is_selected);
         }
 
-        // Draw right separator for each content row
         if (this->draw_right_separator) {
             for (int row = 0; row < this->item_height; row++) {
                 attron(Terminal_colors[PANEL_BORDER]);
@@ -401,13 +319,11 @@ void Panel_draw(Panel* this, bool force_redraw) {
         }
     }
 
-    // Fill remaining empty space at bottom
     int drawn_height = (last - first) * this->item_height;
     for (int y = drawn_height; y < available_height; y++) {
         int line_width = this->draw_right_separator ? this->w - 1 : this->w - 2;
         mvhline(y_pos + y, this->x, ' ', line_width);
 
-        // Draw Right Separator for empty rows too
         if (this->draw_right_separator) {
             attron(Terminal_colors[PANEL_BORDER]);
             mvaddch(y_pos + y, this->x + this->w - 1, ACS_VLINE);
@@ -415,7 +331,6 @@ void Panel_draw(Panel* this, bool force_redraw) {
         }
     }
 
-    // 5. Draw Scrollbar Indicator (if needed)
     if (size > available_height) {
         int scrollbar_pos = (this->scroll_v * (available_height - 1)) / MAX(1, size - 1);
         int scrollbar_y = y_pos + scrollbar_pos;
@@ -430,11 +345,7 @@ void Panel_draw(Panel* this, bool force_redraw) {
 }
 
 bool Panel_onKey(Panel* this, int key) {
-    if (!this) {
-        return false;
-    }
-    
-    // Try custom handler first
+    if (!this) { return false; }
     if (this->event_handler) {
         HandlerResult result = this->event_handler(this, key);
         if (result & HANDLED) {
@@ -443,10 +354,7 @@ bool Panel_onKey(Panel* this, int key) {
     }
     
     int size = (int)this->item_count;
-    if (size == 0) {
-        return false;
-    }
-    
+    if (size == 0) { return false; }
     int old_selected = this->selected;
     int old_scroll = this->scroll_v;
     int available_height = this->h - (this->header ? 2 : 1); // Minus header and border
@@ -456,32 +364,26 @@ bool Panel_onKey(Panel* this, int key) {
         case 'k':
             this->selected--;
             break;
-            
         case KEY_DOWN:
         case 'j':
             this->selected++;
             break;
-            
-        case KEY_PPAGE:  // Page Up
+        case KEY_PPAGE:
             this->selected -= available_height;
             this->scroll_v -= available_height;
             break;
-            
-        case KEY_NPAGE:  // Page Down
+        case KEY_NPAGE: 
             this->selected += available_height;
             this->scroll_v += available_height;
             break;
-            
         case KEY_HOME:
         case 'g':
             this->selected = 0;
             break;
-            
         case KEY_END:
         case 'G':
             this->selected = size - 1;
             break;
-            
         case KEY_LEFT:
         case 'h':
             if (this->scroll_h > 0) {
@@ -491,23 +393,16 @@ bool Panel_onKey(Panel* this, int key) {
                 }
             }
             break;
-            
         case KEY_RIGHT:
         case 'l':
             this->scroll_h += 5;
             break;
-            
         default:
             return false;
     }
     
-    // Clamp selection
     this->selected = CLAMP(this->selected, 0, size - 1);
-    
-    // Clamp scroll
     this->scroll_v = CLAMP(this->scroll_v, 0, MAX(0, size - available_height));
-    
-    // Mark for redraw if changed
     if (this->selected != old_selected || this->scroll_v != old_scroll) {
         this->needs_redraw = true;
     }
@@ -516,9 +411,7 @@ bool Panel_onKey(Panel* this, int key) {
 }
 
 void Panel_setNeedsRedraw(Panel* this) {
-    if (this) {
-        this->needs_redraw = true;
-    }
+    if (this) { this->needs_redraw = true; }
 }
 
 void Panel_setFocus(Panel* this, bool focus) {

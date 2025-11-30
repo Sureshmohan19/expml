@@ -1,15 +1,13 @@
-#include "DataLoader.h"
 #include "Storage.h"
-#include "MetricsPanel.h"
+#include "DataLoader.h"
 #include "SystemPanel.h"
+#include "MetricsPanel.h"
 
-#include <cjson/cJSON.h>
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <math.h>
-
-// --- Internal Helper Structs ---
+#include <cjson/cJSON.h>
 
 typedef struct {
     char* key;
@@ -18,18 +16,13 @@ typedef struct {
     int capacity;
 } MetricSeries;
 
-// --- Internal Helper Functions ---
-
 static MetricSeries* getSeries(MetricSeries** list, int* count, const char* key) {
     for (int i = 0; i < *count; i++) {
-        if (strcmp((*list)[i].key, key) == 0) {
-            return &(*list)[i];
-        }
+        if (strcmp((*list)[i].key, key) == 0) { return &(*list)[i]; }
     }
     
-    // Not found, create new
     MetricSeries* new_list = realloc(*list, (*count + 1) * sizeof(MetricSeries));
-    if (!new_list) return NULL; // Safety check
+    if (!new_list) return NULL; 
     
     *list = new_list;
     MetricSeries* s = &(*list)[*count];
@@ -55,23 +48,18 @@ static void appendValue(MetricSeries* s, float val) {
     s->values[s->count++] = val;
 }
 
-// --- Public API Implementation ---
-
 void DataLoader_loadMetrics(const char* run_path, Panel* metricsPanel, Panel* systemPanel) {
     void* handle = Storage_openMetrics(run_path);
     if (!handle) return;
 
-    // Temporary storage for accumulating time-series data
     MetricSeries* all_series = NULL;
     int series_count = 0;
 
-    // 1. READ Loop
     MetricEntry* entry;
     while ((entry = Storage_readNextMetric(handle)) != NULL) {
         if (entry->json) {
             cJSON* item;
             cJSON_ArrayForEach(item, entry->json) {
-                // Filter out internal keys and non-numbers
                 if (item->string[0] == '_') continue;
                 if (!cJSON_IsNumber(item)) continue;
 
@@ -85,8 +73,6 @@ void DataLoader_loadMetrics(const char* run_path, Panel* metricsPanel, Panel* sy
     }
     Storage_closeMetrics(handle);
 
-    // 2. POPULATE Panels
-    // Clear existing data
     if (metricsPanel) Panel_clear(metricsPanel);
     if (systemPanel) Panel_clear(systemPanel);
 
@@ -100,25 +86,18 @@ void DataLoader_loadMetrics(const char* run_path, Panel* metricsPanel, Panel* sy
 
         float current = s->values[s->count - 1];
 
-        // Separation Logic: System vs Training Metrics
         if (strncmp(s->key, "system/", 7) == 0) {
-            // -- RIGHT PANEL (System) --
             if (systemPanel) {
-                char* display_name = s->key + 7; // Skip "system/" prefix
+                char* display_name = s->key + 7; 
                 char val_str[32];
                 
-                // Formatting Polish
                 if (strstr(display_name, "percent") || strstr(display_name, "util") || strstr(display_name, "load")) {
-                     // Percents: 12.5%
                      snprintf(val_str, 32, "%.1f%%", current);
                 } else if (strstr(display_name, "gb") || strstr(display_name, "ram")) {
-                     // RAM: 12.50GB (fixed width for stability)
                      snprintf(val_str, 32, "%.2fGB", current);
                 } else if (strstr(display_name, "temp")) {
-                     // Temp: 65°C
                      snprintf(val_str, 32, "%.0f°C", current);
                 } else {
-                     // Generic: 4 decimals to match MetricsPanel style
                      snprintf(val_str, 32, "%.4f", current);
                 }
 
@@ -127,17 +106,12 @@ void DataLoader_loadMetrics(const char* run_path, Panel* metricsPanel, Panel* sy
                 Panel_addItem(systemPanel, buffer, NULL);
             }
         } else {
-            // -- MIDDLE PANEL (Training Charts) --
             if (metricsPanel) {
                 MetricsPanel_addMetric(metricsPanel, s->key, current, s->values, s->count);
             }
         }
-
-        // Cleanup individual series
         free(s->key);
         free(s->values);
     }
-    
-    // Cleanup list
     free(all_series);
 }

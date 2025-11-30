@@ -1,43 +1,60 @@
 #include "RunPanel.h"
 #include "Terminal.h"
-#include <cjson/cJSON.h>
+
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ncurses.h>
+#include <cjson/cJSON.h>
 
-#define VALUE_COLUMN_OFFSET 20
+#define VALUE_COLUMN_OFFSET 15  // Reduced from 20 to 15
 
-// --- Helper: Draw Item (Same as before) ---
 static void RunPanel_drawItem(Panel* panel, int index, int y, int x, int w, bool selected) {
     PanelItem* item = Panel_getItem(panel, index);
     if (!item) return;
-
     char* text = item->text;
     char* separator = strchr(text, '\t');
 
-    // Clear line
     if (selected) attron(Terminal_colors[TEXT_SELECTED]);
     else attron(Terminal_colors[TEXT_NORMAL]);
     mvhline(y, x, ' ', w);
 
     if (separator) {
-        // "Key\tValue"
         int key_len = separator - text;
-        mvprintw(y, x, "%.*s", key_len, text);
+        int max_key_len = VALUE_COLUMN_OFFSET - 1;  // Leave 1 space before value
+        
+        // Draw key with TEXT_DIM
+        if (!selected) attron(Terminal_colors[TEXT_DIM]);
+        if (key_len > max_key_len) {
+            mvprintw(y, x, "%.*s...", max_key_len - 3, text);
+        } else {
+            mvprintw(y, x, "%.*s", key_len, text);
+        }
+        if (!selected) attroff(Terminal_colors[TEXT_DIM]);
 
+        // Draw value
         int val_x = x + VALUE_COLUMN_OFFSET;
-        if (val_x < x + key_len + 1) val_x = x + key_len + 1;
-
+        int available_width = w - VALUE_COLUMN_OFFSET - 1;  // -1 for safety margin
+        const char* value = separator + 1;
+        int value_len = strlen(value);
+        
         if (!selected) attron(Terminal_colors[TEXT_BRIGHT]);
-        mvprintw(y, val_x, "%.*s", w - (val_x - x), separator + 1);
+        if (value_len > available_width) {
+            mvprintw(y, val_x, "%.*s...", available_width - 3, value);
+        } else {
+            mvprintw(y, val_x, "%.*s", available_width, value);
+        }
         if (!selected) attroff(Terminal_colors[TEXT_BRIGHT]);
     } else {
-        // Header
+        // Section headers
         if (strlen(text) > 0) {
             if (!selected) attron(Terminal_colors[PANEL_HEADER]);
             attron(A_BOLD);
-            mvprintw(y, x, "%.*s", w, text);
+            if (strlen(text) > (size_t)(w - 1)) {
+                mvprintw(y, x, "%.*s...", w - 4, text);
+            } else {
+                mvprintw(y, x, "%.*s", w - 1, text);
+            }
             attroff(A_BOLD);
             if (!selected) attroff(Terminal_colors[PANEL_HEADER]);
         }
@@ -54,14 +71,12 @@ Panel* RunPanel_new(int x, int y, int w, int h) {
     return p;
 }
 
-// --- Helper: Add Key-Value string ---
 static void addKV(Panel* p, const char* key, const char* val) {
     char buffer[256];
     snprintf(buffer, sizeof(buffer), "%s\t%s", key, val ? val : "N/A");
     Panel_addItem(p, buffer, NULL);
 }
 
-// --- Helper: Add Key-Int string ---
 static void addKI(Panel* p, const char* key, int val) {
     char buffer[256];
     snprintf(buffer, sizeof(buffer), "%s\t%d", key, val);
@@ -70,11 +85,8 @@ static void addKI(Panel* p, const char* key, int val) {
 
 void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSummary* summary) {
     if (!this) return;
-
-    // Clear existing items to rebuild the list
     Panel_clear(this);
 
-    // 1. Summary Section (Top Priority)
     if (summary) {
         Panel_addItem(this, "Summary", NULL);
         addKV(this, "State", summary->status);
@@ -85,11 +97,9 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
         addKI(this, "Step", summary->step);
         addKI(this, "Epoch", summary->epoch);
 
-        // Add dynamic summary metrics (loss, acc, etc.)
         if (summary->json) {
             cJSON* item;
             cJSON_ArrayForEach(item, summary->json) {
-                // Skip internal keys starting with _ or status/epoch which we already showed
                 if (item->string[0] == '_' || 
                     strcmp(item->string, "status") == 0 || 
                     strcmp(item->string, "epoch") == 0) continue;
@@ -101,10 +111,9 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
                 }
             }
         }
-        Panel_addItem(this, "", NULL); // Spacer
+        Panel_addItem(this, "", NULL);
     }
 
-    // 2. Metadata Section
     if (meta) {
         Panel_addItem(this, "Environment", NULL);
         addKV(this, "ID", meta->run_id);
@@ -119,9 +128,8 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
         Panel_addItem(this, "", NULL);
     }
 
-    // 3. Config Section
     if (config && config->json) {
-        Panel_addItem(this, "Config", NULL);
+        Panel_addItem(this, "Configuration", NULL);
         
         cJSON* item;
         cJSON_ArrayForEach(item, config->json) {
@@ -130,7 +138,6 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
             if (cJSON_IsString(item)) {
                 addKV(this, item->string, item->valuestring);
             } else if (cJSON_IsNumber(item)) {
-                // Formatting based on whether it's int or float
                 if ((double)item->valueint == item->valuedouble) {
                      snprintf(valBuffer, 64, "%d", item->valueint);
                 } else {

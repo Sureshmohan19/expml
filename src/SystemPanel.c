@@ -5,87 +5,73 @@
 #include <stdlib.h>
 #include <ncurses.h>
 
-// Reuse the offset logic, but smaller for the right panel
-#define SYS_VALUE_OFFSET 20
+// Fixed column position for values.
+// System keys (e.g. "gpu_utilization") are long, so we need more space than RunPanel.
+#define VALUE_COLUMN_OFFSET 22
 
 static void SystemPanel_drawItem(Panel* panel, int index, int y, int x, int w, bool selected) {
     PanelItem* item = Panel_getItem(panel, index);
     if (!item) return;
-
     char* text = item->text;
     char* separator = strchr(text, '\t');
 
-    if (selected) {
-        attron(Terminal_colors[TEXT_SELECTED]);
-        mvhline(y, x, ' ', w);
-    } else {
-        attron(Terminal_colors[TEXT_NORMAL]);
-        mvhline(y, x, ' ', w);
-    }
+    // 1. Draw Background (Full Width)
+    if (selected) attron(Terminal_colors[TEXT_SELECTED]);
+    else attron(Terminal_colors[TEXT_NORMAL]);
+    mvhline(y, x, ' ', w);
 
     if (separator) {
-        // Format: "Label\tValue"
+        // Calculate lengths
         int key_len = separator - text;
+        int max_key_len = VALUE_COLUMN_OFFSET - 1; // Leave 1 char gap
         
-        // Draw Label
-        mvprintw(y, x, "%.*s", key_len, text);
+        // --- DRAW KEY (Left Column) ---
+        if (!selected) attron(Terminal_colors[TEXT_DIM]);
         
-        // Draw Value (Right aligned or Fixed Offset)
-        // For System panel, let's align values to the right side of the available space
-        // because the numbers are short (75%, 58.4W)
+        if (key_len > max_key_len) {
+            // Truncate with "..."
+            mvprintw(y, x, "%.*s...", max_key_len - 3, text);
+        } else {
+            mvprintw(y, x, "%.*s", key_len, text);
+        }
         
-        attron(A_BOLD);
-        if (!selected) attron(Terminal_colors[TEXT_BRIGHT]);
-        
+        if (!selected) attroff(Terminal_colors[TEXT_DIM]);
+
+        // --- DRAW VALUE (Fixed Right Column) ---
+        int val_x = x + VALUE_COLUMN_OFFSET;
+        int available_width = w - VALUE_COLUMN_OFFSET - 1; // -1 for padding
         char* val = separator + 1;
         int val_len = strlen(val);
-        int val_pos = x + w - val_len - 1; // Align right (-1 for padding)
-        
-        if (val_pos < x + key_len + 1) val_pos = x + key_len + 1; // Safety overlap
-        
-        mvprintw(y, val_pos, "%s", val);
-        
-        if (!selected) attroff(Terminal_colors[TEXT_BRIGHT]);
-        attroff(A_BOLD);
-        
-    } else {
-        // Header or Spacer
-        if (strlen(text) > 0) {
-            if (!selected) attron(Terminal_colors[PANEL_HEADER]);
-            mvprintw(y, x, "%s", text);
-            if (!selected) attroff(Terminal_colors[PANEL_HEADER]);
+
+        if (!selected) attron(Terminal_colors[TEXT_BRIGHT]);
+        attron(A_BOLD); // Keep values bold for visibility
+
+        if (val_len > available_width) {
+            // Truncate with "..."
+            mvprintw(y, val_x, "%.*s...", available_width - 3, val);
+        } else {
+            mvprintw(y, val_x, "%s", val);
         }
+
+        attroff(A_BOLD);
+        if (!selected) attroff(Terminal_colors[TEXT_BRIGHT]);
+
+    } else {
+        // Fallback for non-KV lines (rare in SystemPanel)
+        if (!selected) attron(Terminal_colors[TEXT_DIM]);
+        mvprintw(y, x, "%.*s", w, text);
+        if (!selected) attroff(Terminal_colors[TEXT_DIM]);
     }
 
+    // Reset Selection Attributes
     if (selected) attroff(Terminal_colors[TEXT_SELECTED]);
     else attroff(Terminal_colors[TEXT_NORMAL]);
 }
 
 Panel* SystemPanel_new(int x, int y, int w, int h) {
-    Panel* p = Panel_new(x, y, w, h, "System Metrics [1-12 of 25]");
+    Panel* p = Panel_new(x, y, w, h, "System Metrics");
     if (!p) return NULL;
 
     Panel_setDrawItem(p, SystemPanel_drawItem);
-
-    // Populate Data based on Screenshot
-    Panel_addItem(p, "Apple E-cores\t75%", NULL);
-    Panel_addItem(p, "Apple E-cores Freq\t2.03GHz", NULL);
-    Panel_addItem(p, "Apple P-cores\t75%", NULL);
-    Panel_addItem(p, "Apple P-cores Freq\t3.15GHz", NULL);
-    Panel_addItem(p, "", NULL); // Spacer
-    
-    Panel_addItem(p, "CPU Power\t58.4W", NULL);
-    Panel_addItem(p, "CPU Temp\t70°C", NULL);
-    Panel_addItem(p, "", NULL);
-    
-    Panel_addItem(p, "Disk (%)\t75%", NULL);
-    Panel_addItem(p, "Disk (GB)\t759.6GiB", NULL);
-    Panel_addItem(p, "Disk I/O\t217.1MiB", NULL);
-    Panel_addItem(p, "", NULL);
-
-    Panel_addItem(p, "GPU Freq\t763MHz", NULL);
-    Panel_addItem(p, "GPU Power\t18.3W", NULL);
-    Panel_addItem(p, "GPU Temp\t59.6°C", NULL);
-
     return p;
 }

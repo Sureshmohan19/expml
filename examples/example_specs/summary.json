@@ -1,0 +1,10 @@
+{
+  "status": "FINISHED",
+  "_runtime": 213.5,
+  "_step": 1000,
+  "_timestamp": 1764027413.0,
+  "loss": 0.2345,
+  "accuracy": 0.95,
+  "epoch": 20,
+  "grad_norm": 1.25
+}

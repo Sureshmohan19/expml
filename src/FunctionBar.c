@@ -1,5 +1,6 @@
 #include "FunctionBar.h"
-#include "Terminal.h" // Assuming this holds your color definitions
+#include "Terminal.h"
+
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +29,6 @@ FunctionBar* FunctionBar_new(const char* const* keys, const char* const* labels)
     }
     this->count = i;
     this->context[0] = '\0'; // Empty context by default
-
     return this;
 }
 
@@ -43,7 +43,6 @@ void FunctionBar_delete(FunctionBar* this) {
 
 void FunctionBar_setContext(FunctionBar* this, const char* fmt, ...) {
     if (!this) return;
-
     va_list args;
     va_start(args, fmt);
     vsnprintf(this->context, MAX_CONTEXT_LEN, fmt, args);
@@ -52,19 +51,17 @@ void FunctionBar_setContext(FunctionBar* this, const char* fmt, ...) {
 
 void FunctionBar_draw(const FunctionBar* this, int width) {
     if (!this) return;
+    int y = LINES - 2; 
+    int bar_color = Terminal_colors[STATUS_BAR];
 
-    int y = LINES - 1; 
-
-    // 1. Draw Background (Full width bar)
-    // We use STATUS_BAR color (defined in Terminal.h/ScreenManager or similar)
-    // If STATUS_BAR isn't defined yet, use A_REVERSE
-    attron(Terminal_colors[STATUS_BAR]); 
+    attron(bar_color);
     mvhline(y, 0, ' ', width);
+    attroff(bar_color);
 
-    // 2. Draw Context (Left Aligned)
+    attron(bar_color);
     mvprintw(y, 1, "%s", this->context);
+    attroff(bar_color);
 
-    // 3. Draw Keys (Right Aligned)
     int current_x = width - 1;
 
     for (int i = this->count - 1; i >= 0; i--) {
@@ -73,21 +70,19 @@ void FunctionBar_draw(const FunctionBar* this, int width) {
         int total_len = key_len + label_len + 2; // +2 for ": "
 
         current_x -= total_len;
-
-        // Stop if we are about to overwrite context
         if (current_x < (int)strlen(this->context) + 3) break;
 
-        // Draw Key (Bold/Different color if possible)
-        attron(A_BOLD);
+        attron(bar_color | A_BOLD);
         mvprintw(y, current_x, "%s", this->keys[i]);
         attroff(A_BOLD);
         
-        // Draw Label
+        attron(bar_color);
         printw(":%s", this->labels[i]);
+        attroff(bar_color);
 
-        // Add spacing between items
         current_x -= 2; 
     }
 
-    attroff(Terminal_colors[STATUS_BAR]);
+    attroff(bar_color);
+    refresh();
 }

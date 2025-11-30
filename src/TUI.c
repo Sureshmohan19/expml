@@ -1,0 +1,114 @@
+#define _POSIX_C_SOURCE 200809L
+
+# include "TUI.h"
+#include "Panel.h"
+#include "Storage.h"
+#include "Terminal.h"
+#include "RunPanel.h"
+#include "DataLoader.h"
+#include "FunctionBar.h"
+#include "SystemPanel.h"
+#include "MetricsPanel.h"
+#include "ScreenManager.h"
+
+# include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <cjson/cJSON.h>
+
+typedef struct {
+    char* run_path;
+    Panel* runPanel;
+    Panel* metricsPanel;
+    Panel* systemPanel;
+    FunctionBar* funcBar;
+    ScreenManager* sm;
+} AppContext;
+
+static void on_refresh(void* userdata) {
+   AppContext* ctx = (AppContext*)userdata;
+
+   int saved_metrics_selection = Panel_getSelectedIndex(ctx->metricsPanel);
+   DataLoader_loadMetrics(ctx->run_path, ctx->metricsPanel, ctx->systemPanel);
+   Panel_setSelected(ctx->metricsPanel, saved_metrics_selection);
+
+   RunSummary* summary = Storage_readSummary(ctx->run_path);
+   RunConfig* config = Storage_readConfig(ctx->run_path);
+   RunMetadata* meta = Storage_readMetadata(ctx->run_path);
+
+   if (summary || config || meta) { RunPanel_setData(ctx->runPanel, config, meta, summary); }
+   if (summary) {
+        ScreenManager_setHeaderStatus(ctx->sm, summary->status);
+        ScreenManager_setHeaderRuntime(ctx->sm, summary->runtime);
+        FunctionBar_setContext(ctx->funcBar, 
+            "State: %s | Runtime: %.0fs | Step: %d", 
+            summary->status ? summary->status : "UNKNOWN", 
+            summary->runtime, 
+            summary->step
+        );
+   }
+   Storage_freeRunSummary(summary);
+   Storage_freeRunConfig(config);
+   Storage_freeRunMetadata(meta);
+}
+
+void runTUI(const char* expml_dir) {
+   char* run_path = Storage_findLatestRun(expml_dir);
+   if (!run_path) {
+       fprintf(stderr, "ERROR: Could not resolve 'latest-run' in '%s'\n", expml_dir);
+       if (access(expml_dir, F_OK) != 0) {
+           fprintf(stderr, "       Directory '%s' does not exist.\n", expml_dir);
+       }
+       return;
+   }
+   
+   RunMetadata* meta = Storage_readMetadata(run_path);
+   RunSummary* summary = Storage_readSummary(run_path);
+   
+   char header_text[256];
+   if (meta && meta->run_name) {
+       snprintf(header_text, sizeof(header_text), "%s", meta->run_name);
+   } else if (summary && strcmp(summary->status, "FINISHED") == 0) {
+       snprintf(header_text, sizeof(header_text), "Experiment Snapshot");
+   } else {
+       snprintf(header_text, sizeof(header_text), "Running Experiment");
+   }
+
+   Terminal_init(true);
+   ScreenManager* sm = ScreenManager_new(header_text, 1.0);
+
+   Storage_freeRunMetadata(meta);
+   Storage_freeRunSummary(summary);
+
+   const char* keys[] = {"h", "q", NULL};
+   const char* labels[] = {"Help", "Quit", NULL};
+
+   FunctionBar* fb = FunctionBar_new(keys, labels);
+   ScreenManager_setFunctionBar(sm, fb);
+
+   Panel* runPanel = RunPanel_new(0, 0, 0, 0);
+   ScreenManager_addPanel(sm, runPanel, 35);
+
+   Panel* metricsPanel = MetricsPanel_new(0, 0, 0, 0);
+   ScreenManager_addPanel(sm, metricsPanel, 0);
+   
+   Panel* systemPanel = SystemPanel_new(0, 0, 0, 0);
+   ScreenManager_addPanel(sm, systemPanel, 35);
+
+   AppContext ctx;
+   ctx.run_path = run_path;
+   ctx.runPanel = runPanel;
+   ctx.metricsPanel = metricsPanel;
+   ctx.systemPanel = systemPanel;
+   ctx.funcBar = fb;
+   ctx.sm = sm; 
+
+   ScreenManager_setRefreshCallback(sm, on_refresh, &ctx);
+   on_refresh(&ctx);
+   ScreenManager_run(sm);
+
+   ScreenManager_delete(sm);
+   Terminal_done(); 
+   free(run_path);
+}      

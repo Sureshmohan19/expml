@@ -1,21 +1,19 @@
-#define _POSIX_C_SOURCE 200809L // For getline
+#define _POSIX_C_SOURCE 200809L 
 
 #include "Storage.h"
-#include <cjson/cJSON.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <cjson/cJSON.h>
 
-// Internal handle for streaming
 typedef struct MetricsHandle_ {
     FILE* file;
     char* line_buffer;
     size_t buffer_size;
 } MetricsHandle;
-
-// --- Helper Functions ---
 
 static char* readFileToString(const char* filepath) {
     FILE* f = fopen(filepath, "r");
@@ -44,38 +42,28 @@ static char* buildPath(const char* dir, const char* filename) {
     return path;
 }
 
-// Safely duplicate a JSON string field, or return default
 static char* getJsonString(cJSON* root, const char* key, const char* def) {
     cJSON* item = cJSON_GetObjectItem(root, key);
-    if (item && cJSON_IsString(item)) {
-        return strdup(item->valuestring);
-    }
+    if (item && cJSON_IsString(item)) { return strdup(item->valuestring); }
     return def ? strdup(def) : NULL;
 }
 
 static int getJsonInt(cJSON* root, const char* key, int def) {
     cJSON* item = cJSON_GetObjectItem(root, key);
-    if (item && cJSON_IsNumber(item)) {
-        return item->valueint;
-    }
+    if (item && cJSON_IsNumber(item)) { return item->valueint; }
     return def;
 }
 
 static double getJsonDouble(cJSON* root, const char* key, double def) {
     cJSON* item = cJSON_GetObjectItem(root, key);
-    if (item && cJSON_IsNumber(item)) {
-        return item->valuedouble;
-    }
+    if (item && cJSON_IsNumber(item)) { return item->valuedouble; }
     return def;
 }
-
-// --- Implementation ---
 
 char* Storage_findLatestRun(const char* expml_dir) {
     char* symlink_path = buildPath(expml_dir, "latest-run");
     if (!symlink_path) return NULL;
-    
-    // Check if it's actually a symlink
+
     struct stat st;
     if (lstat(symlink_path, &st) != 0 || !S_ISLNK(st.st_mode)) {
         free(symlink_path);
@@ -88,13 +76,9 @@ char* Storage_findLatestRun(const char* expml_dir) {
     
     if (len < 0) return NULL;
     target[len] = '\0';
-    
-    // If absolute path, return as is. If relative, prepend dir.
     if (target[0] == '/') return strdup(target);
     return buildPath(expml_dir, target);
 }
-
-// --- Config Parser ---
 
 RunConfig* Storage_readConfig(const char* run_dir) {
     char* path = buildPath(run_dir, "config.json");
@@ -117,8 +101,6 @@ void Storage_freeRunConfig(RunConfig* config) {
     free(config);
 }
 
-// --- Metadata Parser ---
-
 RunMetadata* Storage_readMetadata(const char* run_dir) {
     char* path = buildPath(run_dir, "metadata.json");
     char* content = readFileToString(path);
@@ -132,7 +114,6 @@ RunMetadata* Storage_readMetadata(const char* run_dir) {
     RunMetadata* meta = calloc(1, sizeof(RunMetadata));
     if (!meta) { cJSON_Delete(json); return NULL; }
 
-    // String fields
     meta->run_id = getJsonString(json, "id", "unknown");
     meta->run_name = getJsonString(json, "name", "unknown");
     meta->user = getJsonString(json, "user", NULL);
@@ -144,11 +125,9 @@ RunMetadata* Storage_readMetadata(const char* run_dir) {
     meta->ram_total = getJsonString(json, "ram_total", NULL);
     meta->command = getJsonString(json, "command", NULL);
 
-    // Numeric fields
     meta->cpu_count = getJsonInt(json, "cpu_count", 0);
     meta->gpu_count = getJsonInt(json, "gpu_count", 0);
 
-    // We are done with the JSON object, we extracted what we needed into struct
     cJSON_Delete(json);
     return meta;
 }
@@ -168,8 +147,6 @@ void Storage_freeRunMetadata(RunMetadata* meta) {
     free(meta);
 }
 
-// --- Summary Parser ---
-
 RunSummary* Storage_readSummary(const char* run_dir) {
     char* path = buildPath(run_dir, "summary.json");
     char* content = readFileToString(path);
@@ -187,8 +164,6 @@ RunSummary* Storage_readSummary(const char* run_dir) {
     sum->timestamp = getJsonDouble(json, "_timestamp", 0.0);
     sum->step = getJsonInt(json, "_step", 0);
     sum->epoch = getJsonInt(json, "epoch", 0);
-    
-    // Keep the JSON object to access dynamic metrics (loss, acc, etc.)
     sum->json = json; 
 
     return sum;
@@ -200,8 +175,6 @@ void Storage_freeRunSummary(RunSummary* summary) {
     if (summary->json) cJSON_Delete(summary->json);
     free(summary);
 }
-
-// --- Metrics Streamer ---
 
 void* Storage_openMetrics(const char* run_dir) {
     char* path = buildPath(run_dir, "metrics.jsonl");
@@ -222,15 +195,13 @@ MetricEntry* Storage_readNextMetric(void* handle) {
     if (!h) return NULL;
 
     ssize_t read = getline(&h->line_buffer, &h->buffer_size, h->file);
-    if (read < 0) return NULL; // End of file
+    if (read < 0) return NULL; 
 
     cJSON* json = cJSON_Parse(h->line_buffer);
-    if (!json) return NULL; // Parsing error or empty line
+    if (!json) return NULL; 
 
     MetricEntry* entry = calloc(1, sizeof(MetricEntry));
     entry->json = json;
-    
-    // Convenience extractions for common fields
     entry->step = getJsonInt(json, "_step", -1);
     entry->timestamp = getJsonDouble(json, "_timestamp", 0.0);
 

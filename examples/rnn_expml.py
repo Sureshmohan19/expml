@@ -1,7 +1,7 @@
 # Recurrent Neural Network Implementation
 import jax
 import jax.numpy as jnp
-import wandb  # <--- CHANGED
+import expml  # <--- CHANGED
 import time   # Added for simulation delay
 
 raw_text = 'hello world'
@@ -155,8 +155,8 @@ def update(params, grads, lr=0.1):
 
 # train
 def train_rnn(data, params, hidden_size, vocab_size, epoch, lr=learning_rate):
-    # --- wandb INIT ---
-    wandb.init(
+    # --- EXPML INIT ---
+    expml.init(
         project="rnn_research",
         config={
             "hidden_size": hidden_size,
@@ -169,7 +169,7 @@ def train_rnn(data, params, hidden_size, vocab_size, epoch, lr=learning_rate):
             "simulation": True
         })
         
-    for epo in range(1000):
+    for epo in range(epoch):
         total_loss = 0
         correct_predictions = 0
         total_predictions = 0
@@ -204,8 +204,8 @@ def train_rnn(data, params, hidden_size, vocab_size, epoch, lr=learning_rate):
             "weight/W_hy": float(jnp.linalg.norm(params["W_hy"])),
         }
         
-        # --- wandb LOG ---
-        wandb.log({
+        # --- EXPML LOG ---
+        expml.log({
             "loss": avg_loss,
             "acc": accuracy,
             "epoch": epo,
@@ -267,5 +267,5 @@ if __name__ == "__main__":
     output = generate(params, 'h', char_to_idx, idx_to_char, num_chars=10)
     print(output)
     
-    # --- wandb FINISH ---
-    wandb.finish()
+    # --- EXPML FINISH ---
+    expml.finish()
