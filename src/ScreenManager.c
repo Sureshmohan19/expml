@@ -33,12 +33,35 @@ struct ScreenManager_ {
     void* refresh_userdata;
 };
 
+// Returns current time in seconds with microsecond precision
 static double getCurrentTime(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
 }
 
+// Draws the instruction hint line below the header
+static void drawInstructions(void) {
+    int instruction_y = 4;
+    attron(Terminal_colors[TEXT_DIM]);
+    mvhline(instruction_y, 0, ' ', COLS);
+    mvhline(instruction_y + 1, 0, ' ', COLS);
+    attroff(Terminal_colors[TEXT_DIM]);
+
+    attron(Terminal_colors[TEXT_BRIGHT]);
+    mvprintw(instruction_y, 2, "Hint:");
+    attroff(Terminal_colors[TEXT_BRIGHT]);
+
+    attron(Terminal_colors[TEXT_DIM]);
+    mvprintw(instruction_y + 1, 2, "/");
+    attron(A_BOLD);
+    printw(" press Tab ");
+    attroff(A_BOLD);
+    printw("to switch panels");
+    attroff(Terminal_colors[TEXT_DIM]);
+}
+
+// Creates a new ScreenManager with header and refresh interval
 ScreenManager* ScreenManager_new(const char* header_text, double refresh_interval) {
     ScreenManager* this = (ScreenManager*)calloc(1, sizeof(ScreenManager));
     if (!this) return NULL;
@@ -62,14 +85,22 @@ ScreenManager* ScreenManager_new(const char* header_text, double refresh_interva
     return this;
 }
 
+// Frees all resources associated with the ScreenManager
 void ScreenManager_delete(ScreenManager* this) {
     if (!this) return;
 
     Header_delete(this->header);
+    
+    // Free all panels before freeing the layouts array
+    for (size_t i = 0; i < this->panel_count; i++) {
+        Panel_delete(this->layouts[i].panel);
+    }
+    
     free(this->layouts);
     free(this);
 }
 
+// Adds a panel to the layout with specified width (0 = auto-stretch)
 void ScreenManager_addPanel(ScreenManager* this, Panel* panel, int width) {
     if (!this || !panel) return;
     
@@ -90,6 +121,36 @@ void ScreenManager_addPanel(ScreenManager* this, Panel* panel, int width) {
     ScreenManager_resize(this);
 }
 
+// Removes a panel at the specified index and returns it (caller must delete it)
+Panel* ScreenManager_removePanel(ScreenManager* this, size_t index) {
+    if (!this || index >= this->panel_count) return NULL;
+    
+    Panel* removed = this->layouts[index].panel;
+    
+    // Shift remaining panels left
+    if (index < this->panel_count - 1) {
+        memmove(&this->layouts[index], 
+                &this->layouts[index + 1], 
+                (this->panel_count - index - 1) * sizeof(PanelLayout));
+    }
+    
+    this->panel_count--;
+    
+    // Adjust focus if needed
+    if (this->focused >= this->panel_count && this->panel_count > 0) {
+        this->focused = this->panel_count - 1;
+    }
+    
+    // Update focus states for all remaining panels
+    for (size_t i = 0; i < this->panel_count; i++) {
+        Panel_setFocus(this->layouts[i].panel, i == this->focused);
+    }
+    
+    ScreenManager_resize(this);
+    return removed;
+}
+
+// Recalculates and applies layout to all panels based on terminal size
 void ScreenManager_resize(ScreenManager* this) {
     if (!this || this->panel_count == 0) return;
     
@@ -99,6 +160,7 @@ void ScreenManager_resize(ScreenManager* this) {
     int used_width = 0;
     int dynamic_panels = 0;
     
+    // Calculate how much width is taken by fixed-width panels
     for (size_t i = 0; i < this->panel_count; i++) {
         if (this->layouts[i].requested_width > 0) {
             used_width += this->layouts[i].requested_width;
@@ -107,6 +169,7 @@ void ScreenManager_resize(ScreenManager* this) {
         }
     }
     
+    // Distribute remaining width among dynamic panels
     int flexible_width = 0;
     if (dynamic_panels > 0) {
         flexible_width = (total_width - used_width) / dynamic_panels;
@@ -118,6 +181,7 @@ void ScreenManager_resize(ScreenManager* this) {
         int w = this->layouts[i].requested_width;
         
         if (w <= 0) {
+            // Last dynamic panel gets all remaining space
             if (i == this->panel_count - 1) {
                 w = COLS - current_x;
             } else {
@@ -133,6 +197,7 @@ void ScreenManager_resize(ScreenManager* this) {
     }
 }
 
+// Sets focus to the panel at the specified index
 bool ScreenManager_setFocus(ScreenManager* this, size_t index) {
     if (!this || index >= this->panel_count) return false;
     Panel_setFocus(this->layouts[this->focused].panel, false);
@@ -142,10 +207,12 @@ bool ScreenManager_setFocus(ScreenManager* this, size_t index) {
     return true;
 }
 
+// Sets the function bar to be displayed at the bottom
 void ScreenManager_setFunctionBar(ScreenManager* this, FunctionBar* bar) {
     if (this) this->function_bar = bar;
 }
 
+// Sets the refresh callback and user data for periodic updates
 void ScreenManager_setRefreshCallback(ScreenManager* this, ScreenManager_OnRefresh callback, void* userdata) {
     if (this) {
         this->on_refresh = callback;
@@ -153,31 +220,14 @@ void ScreenManager_setRefreshCallback(ScreenManager* this, ScreenManager_OnRefre
     }
 }
 
+// Forces a complete redraw of the entire screen
 void ScreenManager_forceRedraw(ScreenManager* this) {
     if (!this) return;
     
     clear();
     Header_draw(this->header);
+    drawInstructions();
     
-   // Add instruction line below header
-    int instruction_y = 4;
-    attron(Terminal_colors[TEXT_DIM]);
-    mvhline(instruction_y, 0, ' ', COLS);
-    mvhline(instruction_y + 1, 0, ' ', COLS);
-    attroff(Terminal_colors[TEXT_DIM]);  // Turn OFF dim before turning ON bright
-
-    attron(Terminal_colors[TEXT_BRIGHT]);
-    mvprintw(instruction_y, 2, "Hint:");
-    attroff(Terminal_colors[TEXT_BRIGHT]);  // Turn OFF bright
-
-    attron(Terminal_colors[TEXT_DIM]);
-    mvprintw(instruction_y + 1, 2, "/");
-    attron(A_BOLD);
-    printw(" press Tab ");
-    attroff(A_BOLD);
-    printw("to switch panels");
-    attroff(Terminal_colors[TEXT_DIM]);
-
     for (size_t i = 0; i < this->panel_count; i++) {
         Panel_draw(this->layouts[i].panel, true);
     }
@@ -189,7 +239,9 @@ void ScreenManager_forceRedraw(ScreenManager* this) {
     refresh();
 }
 
+// Draws the help modal overlay
 static void drawHelp(ScreenManager* this) {
+    (void)this;  // Suppress unused parameter warning
     int w = 50;
     int h = 14;
     int x = (COLS - w) / 2;
@@ -224,7 +276,6 @@ static void drawHelp(ScreenManager* this) {
     
     text_y++;
     mvprintw(text_y++, text_x, "  TAB / Arrows : Switch Panels");
-    mvprintw(text_y++, text_x, "  j / k        : Scroll Down/Up");
     mvprintw(text_y++, text_x, "  Down / Up    : Scroll Down/Up");
     mvprintw(text_y++, text_x, "  PgUp / PgDn  : Scroll Page");
     mvprintw(text_y++, text_x, "  Home / End   : Jump to Top/Bottom");
@@ -244,6 +295,7 @@ static void drawHelp(ScreenManager* this) {
     attroff(Terminal_colors[PANEL_BACKGROUND]);
 }
 
+// Main event loop - handles input, refresh, and rendering
 int ScreenManager_run(ScreenManager* this) {
     if (!this) return -1;
     bool force_redraw = true;
@@ -298,10 +350,12 @@ int ScreenManager_run(ScreenManager* this) {
             if (!handled && this->panel_count > 0) {
                 Panel* p = this->layouts[this->focused].panel;
                 if (Panel_onKey(p, ch)) {
+                    // Panel handled the key
                 }
             }
         }
         
+        // Check if it's time for a periodic refresh
         double current_time = getCurrentTime();
         if ((current_time - this->last_refresh) >= this->refresh_interval) { 
             this->last_refresh = current_time;
@@ -310,29 +364,12 @@ int ScreenManager_run(ScreenManager* this) {
             for(size_t i=0; i<this->panel_count; i++) {
                 Panel_setNeedsRedraw(this->layouts[i].panel);
             }
-            force_redraw = true; // Ensure screen updates
+            force_redraw = true;
         }
         
+        // Render everything
         Header_draw(this->header);
-
-        // Add instruction line below header
-        int instruction_y = 4;
-        attron(Terminal_colors[TEXT_DIM]);
-        mvhline(instruction_y, 0, ' ', COLS);
-        mvhline(instruction_y + 1, 0, ' ', COLS);
-        attroff(Terminal_colors[TEXT_DIM]);  // Turn OFF dim before turning ON bright
-
-        attron(Terminal_colors[TEXT_BRIGHT]);
-        mvprintw(instruction_y, 2, "Hint:");
-        attroff(Terminal_colors[TEXT_BRIGHT]);  // Turn OFF bright
-
-        attron(Terminal_colors[TEXT_DIM]);
-        mvprintw(instruction_y + 1, 2, "/");
-        attron(A_BOLD);
-        printw(" press Tab ");
-        attroff(A_BOLD);
-        printw("to switch panels");
-        attroff(Terminal_colors[TEXT_DIM]);
+        drawInstructions();
         
         for (size_t i = 0; i < this->panel_count; i++) {
             Panel_draw(this->layouts[i].panel, force_redraw);
@@ -340,25 +377,54 @@ int ScreenManager_run(ScreenManager* this) {
 
         if (this->function_bar) { FunctionBar_draw(this->function_bar, COLS); }
         if (this->show_help) { drawHelp(this); }
-        refresh();  // Move to here - after drawing everything
+        refresh();
         force_redraw = false;
-        }
+    }
     return 0;
 }
 
+// Returns the panel at the specified index
 Panel* ScreenManager_getPanel(const ScreenManager* this, size_t index) {
     if (!this || index >= this->panel_count) return NULL;
     return this->layouts[index].panel;
-}                                           
+}
 
+// Returns the currently focused panel
+Panel* ScreenManager_getFocused(ScreenManager* this) {
+    if (!this || this->panel_count == 0) return NULL;
+    return this->layouts[this->focused].panel;
+}
+
+// Returns the total number of panels
+size_t ScreenManager_getPanelCount(const ScreenManager* this) {
+    if (!this) return 0;
+    return this->panel_count;
+}
+
+// Sets the header title text
 void ScreenManager_setHeaderText(ScreenManager* this, const char* text) {
     if (this) Header_setTitle(this->header, text);
 }
 
+// Sets the header status text
 void ScreenManager_setHeaderStatus(ScreenManager* this, const char* status) {
     if (this) Header_setStatus(this->header, status);
 }
 
+// Sets the header runtime value
 void ScreenManager_setHeaderRuntime(ScreenManager* this, double runtime) {
     if (this) Header_setRuntime(this->header, runtime);
+}
+
+// Placeholder functions for potential future use
+void ScreenManager_setStartTime(ScreenManager* this, const char* time) {
+    // Not currently used, reserved for future functionality
+    (void)this;
+    (void)time;
+}
+
+void ScreenManager_setEndTime(ScreenManager* this, const char* time) {
+    // Not currently used, reserved for future functionality
+    (void)this;
+    (void)time;
 }

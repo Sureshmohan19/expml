@@ -135,7 +135,3 @@ void Sparkline_draw(const float* values, size_t count, int y, int x, int width, 
     attroff(color);
     free(grid);
 }
-
-void Sparkline_generate(const float* values, size_t count, char* buffer, int width) {
-    if (buffer) buffer[0] = '\0';
-}

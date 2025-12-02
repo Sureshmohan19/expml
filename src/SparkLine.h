@@ -4,6 +4,5 @@
 #include <stddef.h>
 
 void Sparkline_draw(const float* values, size_t count, int y, int x, int width, int height, int color);
-void Sparkline_generate(const float* values, size_t count, char* buffer, int width);
 
 #endif

@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "MetricsPanel.h"
 #include "SparkLine.h"
 #include "Terminal.h"
@@ -18,7 +20,6 @@ typedef struct {
     float max_value;
     float* history;
     int history_count;
-    int color_idx; 
 } MetricData;
 
 typedef struct {
@@ -36,6 +37,7 @@ typedef struct {
 } MetricsState;
 
 // --- Helper Functions ---
+
 static void MetricsPanel_cleanupRow(void* data) {
     MetricRow* row = (MetricRow*)data;
     if (row) {
@@ -59,10 +61,13 @@ static void MetricsPanel_reflow(Panel* p) {
         MetricRow* row = malloc(sizeof(MetricRow));
         int remaining = state->total_count - i;
         row->count = (remaining < state->columns) ? remaining : state->columns;
+        
         row->metrics = malloc(row->count * sizeof(MetricData*));
         for (int k = 0; k < row->count; k++) {
             row->metrics[k] = state->all_metrics[i + k];
         }
+        
+        // Pass empty label as we draw everything custom
         Panel_addItem(p, "", row); 
     }
 }
@@ -72,10 +77,12 @@ static void MetricsPanel_reflow(Panel* p) {
 // Returns a "Nice" step size (1, 2, 5, 10, 20, 50...)
 static int calculate_nice_step(int range, int target_ticks) {
     if (target_ticks <= 0) target_ticks = 1;
+    if (range <= 0) return 1;
+
     double raw_step = (double)range / target_ticks;
     
     // Calculate magnitude (power of 10)
-    double mag = pow(10, floor(log10(raw_step)));
+    double mag = pow(10, floor(log10(raw_step > 0 ? raw_step : 1)));
     double residual = raw_step / mag;
     
     int nice_step;
@@ -91,21 +98,28 @@ static int calculate_nice_step(int range, int target_ticks) {
 // --- Drawing Logic ---
 
 static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) {
-    // Colors
-    int border_color = selected ? (Terminal_colors[TEXT_BRIGHT] | A_BOLD) 
-                                : Terminal_colors[PANEL_BORDER];
+    if (!m) return;
+
+    // --- Colors ---
+    // Use strictly defined Terminal_colors to avoid unknown backgrounds
+    int border_color = selected ? (int)(Terminal_colors[TEXT_BRIGHT] | A_BOLD) 
+                                : (int)Terminal_colors[PANEL_BORDER];
     int text_color   = Terminal_colors[TEXT_NORMAL];
     int value_color  = Terminal_colors[TEXT_BRIGHT];
     int dim_color    = Terminal_colors[TEXT_DIM];
     
+    // Cycle through safe foreground colors for charts
     int base_colors[] = {
-        Terminal_colors[GRAPH_LINE],
-        Terminal_colors[PANEL_HEADER],
-        COLOR_PAIR(5),
-        COLOR_PAIR(3) 
+        Terminal_colors[GRAPH_LINE],              // Usually Green/Cyan
+        Terminal_colors[PANEL_HEADER],            // Usually Blue
+        Terminal_colors[TEXT_BRIGHT] | A_BOLD,    // Bright White
+        Terminal_colors[GRAPH_LINE] | A_DIM       // Dimmed Graph Color
     };
+    
     int color_pick = 0;
-    if (m->name) color_pick = (m->name[0] + m->name[strlen(m->name)-1]) % 4; 
+    if (m->name && strlen(m->name) > 0) {
+        color_pick = (m->name[0] + m->name[strlen(m->name)-1]) % 4; 
+    }
     int chart_color = base_colors[color_pick];
 
     // 1. Draw Container Border
@@ -121,9 +135,9 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     attroff(border_color);
 
     // 2. Header & Value
-    attron(selected ? (Terminal_colors[PANEL_HEADER]) : (text_color | A_BOLD));
-    mvprintw(y + 1, x + 2, "%.*s", w - 15, m->name);
-    attroff(selected ? (Terminal_colors[PANEL_HEADER]) : (text_color | A_BOLD));
+    attron(selected ? (int)Terminal_colors[PANEL_HEADER] : (int)(text_color | A_BOLD));
+    mvprintw(y + 1, x + 2, "%.*s", w - 15, m->name ? m->name : "N/A");
+    attroff(selected ? (int)Terminal_colors[PANEL_HEADER] : (int)(text_color | A_BOLD));
 
     attron(value_color | A_BOLD);
     char val_buf[32];
@@ -136,7 +150,6 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     mvprintw(y + 3, x + 2, "%4.1f", m->max_value);
     mvaddch(y + 3, x + 5, ACS_HLINE); 
 
-    // Min label moved to (h-3) to separate from X-axis row
     mvprintw(y + h - 3, x + 2, "%4.1f", m->min_value);
     mvaddch(y + h - 3, x + 5, ACS_HLINE); 
     attroff(dim_color);
@@ -148,61 +161,60 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     int graph_y = y + 3; 
 
     if (graph_h > 1 && graph_w > 4) {
-        // Clear background
+        // Clear background area to ensure no artifacts
         attron(text_color);
-        for(int i=0; i<graph_h; i++) mvhline(graph_y+i, graph_x, ' ', graph_w);
+        for(int i=0; i<graph_h; i++) {
+            mvhline(graph_y+i, graph_x, ' ', graph_w);
+        }
         attroff(text_color);
 
         // Draw Y-Axis Line
         attron(dim_color);
         for(int i=0; i<graph_h; i++) mvaddch(graph_y+i, graph_x-1, ACS_VLINE);
         
-        // Draw X-Axis Line (Tick marks will be added in X-Axis loop below)
+        // Draw X-Axis Line
         int axis_y = graph_y + graph_h;
         mvhline(axis_y, graph_x, ACS_HLINE, graph_w);
         mvaddch(axis_y, graph_x - 1, ACS_LLCORNER);
 
         // --- SMART X-AXIS LABELS ---
         int label_y = y + h - 2;
-        int max_labels = graph_w / 10; // Approx 1 label every 10 chars
-        int nice_step = calculate_nice_step(m->history_count, max_labels);
+        int max_labels = graph_w / 8; // Density control
+        if (max_labels < 2) max_labels = 2;
         
+        int nice_step = calculate_nice_step(m->history_count, max_labels);
         int last_label_end_x = -1;
 
         for (int val = 0; val <= m->history_count; val += nice_step) {
-            // Map value to pixel X
+            if (m->history_count == 0) break;
+
             double ratio = (double)val / m->history_count;
-            if (m->history_count == 0) ratio = 0;
-            
-            // -1 because pixels are 0-indexed relative to width
             int px = (int)(ratio * (graph_w - 1));
             int screen_x = graph_x + px;
 
-            // Draw Tick on Axis Line
+            // Draw Tick
             mvaddch(axis_y, screen_x, ACS_TTEE);
 
-            // Format Number
+            // Draw Label
             char buf[16];
             snprintf(buf, 16, "%d", val);
             int len = strlen(buf);
-
-            // Calculate start X (Centered on tick)
             int start_x = screen_x - (len / 2);
 
-            // Clamp left/right so we don't draw outside graph area
+            // Bounds Check
             if (start_x < graph_x) start_x = graph_x;
             if (start_x + len > graph_x + graph_w) start_x = graph_x + graph_w - len;
 
-            // Collision Check: Ensure 2 spaces of gap
+            // Collision Check
             if (start_x > last_label_end_x + 1) {
                 mvprintw(label_y, start_x, "%s", buf);
                 last_label_end_x = start_x + len;
             }
         }
-        
         attroff(dim_color);
         
         // Draw Braille Line Chart
+        // Ensure Sparkline_draw only draws foreground characters
         Sparkline_draw(m->history, m->history_count, 
                        graph_y, graph_x, graph_w, graph_h, 
                        chart_color);
@@ -212,6 +224,7 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
 static void MetricsPanel_drawItem(Panel* panel, int index, int y, int x, int w, bool row_selected) {
     MetricsState* state = (MetricsState*)Panel_getUserData(panel);
     
+    // Handle width change on redraw
     if (state->last_width != w) {
         state->columns = w / MIN_CARD_WIDTH;
         if(state->columns < 1) state->columns = 1;
@@ -228,15 +241,18 @@ static void MetricsPanel_drawItem(Panel* panel, int index, int y, int x, int w, 
     
     for (int i = 0; i < row->count; i++) {
         int card_x = x + (i * card_width);
+        // Adjust last card to fill remaining space exactly
         int current_card_w = (i == state->columns - 1) ? (w - (i * card_width)) : card_width;
         
+        // Add a small gap between cards visually
         if (i < row->count - 1) {
             current_card_w -= 1; 
-            mvaddch(y, card_x + current_card_w, ' ');
         }
 
+        // Logic for "Cell Selection" inside the row
         bool is_card_focused = row_selected && (state->selected_col == i) && panel->has_focus;
         
+        // Safety: If column selection is out of bounds, focus last valid card
         if (state->selected_col >= row->count && row_selected && panel->has_focus) {
              is_card_focused = (i == row->count - 1);
         }
@@ -250,14 +266,16 @@ static HandlerResult MetricsPanel_handleKey(Panel* p, int key) {
     
     int current_row_idx = Panel_getSelectedIndex(p);
     int total_rows = Panel_getItemCount(p);
+    
     PanelItem* item = Panel_getSelected(p);
     if (!item || !item->data) return IGNORED;
     MetricRow* current_row = (MetricRow*)item->data;
 
-    if (key == 'm') {
+    if (key == 'm') { // Left / Previous Metric
         if (state->selected_col > 0) {
             state->selected_col--;
         } else {
+            // Wrap to previous row
             if (current_row_idx > 0) {
                 Panel_setSelected(p, current_row_idx - 1);
                 PanelItem* prev_item = Panel_getSelected(p);
@@ -269,10 +287,11 @@ static HandlerResult MetricsPanel_handleKey(Panel* p, int key) {
         return HANDLED; 
     }
     
-    if (key == 'n') {
+    if (key == 'n') { // Right / Next Metric
         if (state->selected_col < current_row->count - 1) {
             state->selected_col++;
         } else {
+            // Wrap to next row
             if (current_row_idx < total_rows - 1) {
                 Panel_setSelected(p, current_row_idx + 1);
                 state->selected_col = 0;
@@ -305,11 +324,13 @@ Panel* MetricsPanel_new(int x, int y, int w, int h) {
     return p;
 }
 
-void MetricsPanel_addMetric(Panel* this, const char* name, float current_val, const float* values, int count) {
-    if (!this) return;
-    MetricsState* state = (MetricsState*)Panel_getUserData(this);
+void MetricsPanel_addMetric(Panel* panel, const char* name, float current_val, const float* values, int count) {
+    if (!panel) return;
+    MetricsState* state = (MetricsState*)Panel_getUserData(panel);
 
-    if (Panel_getItemCount(this) == 0 && state->total_count > 0) {
+    // Auto-reset logic: If the panel is empty (cleared) but state has items,
+    // it implies a reload/refresh cycle. Clear internal state to match UI.
+    if (Panel_getItemCount(panel) == 0 && state->total_count > 0) {
         for(int i=0; i<state->total_count; i++) {
             if (state->all_metrics[i]) {
                 free(state->all_metrics[i]->name);
@@ -333,6 +354,11 @@ void MetricsPanel_addMetric(Panel* this, const char* name, float current_val, co
         if(values[i] < m->min_value) m->min_value = values[i];
         if(values[i] > m->max_value) m->max_value = values[i];
     }
+    
+    // Prevent flat lines looking weird (avoid min == max)
+    if (m->min_value == m->max_value) {
+        m->max_value += 0.0001; 
+    }
 
     if (state->total_count >= state->capacity) {
         state->capacity *= 2;
@@ -340,7 +366,7 @@ void MetricsPanel_addMetric(Panel* this, const char* name, float current_val, co
     }
     state->all_metrics[state->total_count++] = m;
 
-    MetricsPanel_reflow(this);
+    MetricsPanel_reflow(panel);
 }
 
 void MetricsPanel_updateSize(Panel* p, int w, int h) {

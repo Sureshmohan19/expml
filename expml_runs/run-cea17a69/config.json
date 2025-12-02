@@ -4,8 +4,7 @@
   "num_layers": 1,
   "learning_rate": 0.01,
   "text_length": 11,
-  "epoch": 20,
-  "simulation": true,
-  "model_type": "rnn"
+  "epoch": 500,
+  "model_type": "rnn",
+  "simulation": true
 }
-

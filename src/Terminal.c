@@ -56,14 +56,18 @@ static int Terminal_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [GRAPH_DOTS]            = A_DIM | ColorPair(Cyan, Black),
       [GRAPH_AXIS]            = A_DIM | ColorPair(White, Black),
       [METRIC_VALUE]          = A_BOLD | ColorPair(White, Black),
-      [METRIC_LABEL]          = A_DIM | ColorPair(White, Red),
+      [METRIC_LABEL]          = A_DIM | ColorPair(White, Black),
       [STATUS_BAR]            = ColorPair(Black, White),  // Black text on white background
       [HELP_TEXT]             = A_DIM | ColorPair(White, Black),
    },
 };
 
 static struct sigaction old_sig_handler[32];
-static void Terminal_handleSIGTERM(int sgn) { Terminal_done(); _exit(0); }
+static void Terminal_handleSIGTERM(int sgn) { 
+    (void)sgn;  // Suppress unused parameter warning
+    Terminal_done(); 
+    _exit(0); 
+}
 static void Terminal_installSignalHandlers(void) {
    struct sigaction act;
    sigemptyset(&act.sa_mask);
@@ -99,10 +103,6 @@ void Terminal_init(bool allowUnicode) {
             init_pair(ColorIndex(fg, bg), fg, actual_bg);
          }
       }
-      // DEBUG: Test a specific pair
-        init_pair(99, COLOR_WHITE, COLOR_CYAN);
-        fprintf(stderr, "Color pairs initialized. COLORS=%d, COLOR_PAIRS=%d\n", 
-                COLORS, COLOR_PAIRS);
    } else {
       Terminal_colorScheme = COLORSCHEME_MONOCHROME;
    }
@@ -121,6 +121,10 @@ void Terminal_done(void) {
       refresh();
    }
    curs_set(1);
+   // Restore old handlers
+   sigaction(SIGINT, &old_sig_handler[SIGINT], NULL);
+   sigaction(SIGTERM, &old_sig_handler[SIGTERM], NULL);
+   sigaction(SIGQUIT, &old_sig_handler[SIGQUIT], NULL);
    endwin();
 }
 
@@ -143,10 +147,6 @@ static void Terminal_initCustomColors(void) {
    short header_color = COLOR_GREEN;
 
    bool can_set_rgb = can_change_color() && COLORS >= 256 && COLOR_PAIRS > PAIR_HEADER;
-
-   // Debug: Check terminal capabilities
-   fprintf(stderr, "can_change_color: %d, COLORS: %d, COLOR_PAIRS: %d\n", 
-            can_change_color(), COLORS, COLOR_PAIRS);
    
    if (can_set_rgb) {
       init_color(COLOR_HEX_HEADING, 953, 776, 184);    // #F3C62F

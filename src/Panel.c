@@ -357,15 +357,15 @@ bool Panel_onKey(Panel* this, int key) {
     if (size == 0) { return false; }
     int old_selected = this->selected;
     int old_scroll = this->scroll_v;
-    int available_height = this->h - (this->header ? 2 : 1); // Minus header and border
+    int available_height = this->h - (this->header ? 2 : 0); // Minus header and border
     
     switch (key) {
+        case KEY_MOUSE:
+            return false;  // Explicitly ignore mouse events
         case KEY_UP:
-        case 'k':
             this->selected--;
             break;
         case KEY_DOWN:
-        case 'j':
             this->selected++;
             break;
         case KEY_PPAGE:
@@ -377,15 +377,12 @@ bool Panel_onKey(Panel* this, int key) {
             this->scroll_v += available_height;
             break;
         case KEY_HOME:
-        case 'g':
             this->selected = 0;
             break;
         case KEY_END:
-        case 'G':
             this->selected = size - 1;
             break;
         case KEY_LEFT:
-        case 'h':
             if (this->scroll_h > 0) {
                 this->scroll_h -= 5;
                 if (this->scroll_h < 0) {
@@ -394,11 +391,8 @@ bool Panel_onKey(Panel* this, int key) {
             }
             break;
         case KEY_RIGHT:
-        case 'l':
             this->scroll_h += 5;
             break;
-        default:
-            return false;
     }
     
     this->selected = CLAMP(this->selected, 0, size - 1);

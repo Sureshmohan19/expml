@@ -1,3 +1,0 @@
-{"_step": 1, "_timestamp": 1764027200, "loss": 25.5, "epoch": 0, "system/cpu": 15.5, "system/ram": 40.2}
-{"_step": 2, "_timestamp": 1764027201, "loss": 23.1, "epoch": 0, "system/cpu": 18.2, "system/ram": 40.5}
-{"_step": 3, "_timestamp": 1764027202, "loss": 20.5, "epoch": 1, "system/cpu": 45.0, "system/ram": 41.0}

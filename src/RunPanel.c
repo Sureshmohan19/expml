@@ -87,37 +87,30 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
     if (!this) return;
     Panel_clear(this);
 
-    if (summary) {
-        Panel_addItem(this, "Summary", NULL);
-        addKV(this, "State", summary->status);
-        
-        char rt[32];
-        snprintf(rt, 32, "%.1fs", summary->runtime);
-        addKV(this, "Runtime", rt);
-        addKI(this, "Step", summary->step);
-        addKI(this, "Epoch", summary->epoch);
-
-        if (summary->json) {
-            cJSON* item;
-            cJSON_ArrayForEach(item, summary->json) {
-                if (item->string[0] == '_' || 
-                    strcmp(item->string, "status") == 0 || 
-                    strcmp(item->string, "epoch") == 0) continue;
-
-                if (cJSON_IsNumber(item)) {
-                    char valStr[32];
-                    snprintf(valStr, 32, "%.4f", item->valuedouble);
-                    addKV(this, item->string, valStr);
-                }
-            }
-        }
-        Panel_addItem(this, "", NULL);
+    // Top 4 items (no heading)
+    char state_val[32] = "N/A";
+    char name_val[128] = "N/A";
+    char id_val[128] = "N/A";
+    
+    if (summary && summary->status) {
+        snprintf(state_val, sizeof(state_val), "%s", summary->status);
     }
+    if (meta && meta->run_name) {
+        snprintf(name_val, sizeof(name_val), "%s", meta->run_name);
+    }
+    if (meta && meta->run_id) {
+        snprintf(id_val, sizeof(id_val), "%s", meta->run_id);
+    }
+    
+    addKV(this, "State", state_val);
+    addKV(this, "Name", name_val);
+    addKV(this, "Project", "N/A");
+    addKV(this, "ID", id_val);
+    Panel_addItem(this, "", NULL);
 
+    // Environment section
     if (meta) {
         Panel_addItem(this, "Environment", NULL);
-        addKV(this, "ID", meta->run_id);
-        addKV(this, "Name", meta->run_name);
         addKV(this, "Host", meta->host);
         addKV(this, "User", meta->user);
         addKV(this, "OS", meta->os);
@@ -125,9 +118,13 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
         addKV(this, "GPU", meta->gpu_name);
         addKI(this, "CPUs", meta->cpu_count);
         addKI(this, "GPUs", meta->gpu_count);
+        addKV(this, "Disk", meta->disk_total);
+        addKV(this, "RAM", meta->ram_total);
+        addKV(this, "Command", meta->command);
         Panel_addItem(this, "", NULL);
     }
 
+    // Configuration section
     if (config && config->json) {
         Panel_addItem(this, "Configuration", NULL);
         
@@ -146,6 +143,44 @@ void RunPanel_setData(Panel* this, RunConfig* config, RunMetadata* meta, RunSumm
                 addKV(this, item->string, valBuffer);
             } else if (cJSON_IsBool(item)) {
                 addKV(this, item->string, cJSON_IsTrue(item) ? "true" : "false");
+            }
+        }
+        Panel_addItem(this, "", NULL);
+    }
+
+    // Summary section
+    if (summary) {
+        Panel_addItem(this, "Summary", NULL);
+        
+        addKV(this, "status", summary->status);
+        
+        char rt[32];
+        snprintf(rt, 32, "%.1fs", summary->runtime);
+        addKV(this, "_runtime", rt);
+        
+        char ts[32];
+        snprintf(ts, 32, "%.2f", summary->timestamp);
+        addKV(this, "_timestamp", ts);
+        
+        addKI(this, "_step", summary->step);
+        addKI(this, "epoch", summary->epoch);
+
+        // Add any other fields from summary.json
+        if (summary->json) {
+            cJSON* item;
+            cJSON_ArrayForEach(item, summary->json) {
+                // Skip fields we already added
+                if (strcmp(item->string, "status") == 0 || 
+                    strcmp(item->string, "_runtime") == 0 ||
+                    strcmp(item->string, "_timestamp") == 0 ||
+                    strcmp(item->string, "_step") == 0 ||
+                    strcmp(item->string, "epoch") == 0) continue;
+
+                if (cJSON_IsNumber(item)) {
+                    char valStr[32];
+                    snprintf(valStr, 32, "%.4f", item->valuedouble);
+                    addKV(this, item->string, valStr);
+                }
             }
         }
     }
