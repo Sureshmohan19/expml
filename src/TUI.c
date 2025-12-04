@@ -5,6 +5,7 @@
 #include "Panel.h"
 #include "Storage.h"
 #include "Terminal.h"
+#include "Constants.h"
 #include "RunPanel.h"
 #include "DataLoader.h"
 #include "FunctionBar.h"
@@ -44,12 +45,28 @@ static void on_refresh(void* userdata) {
    if (summary) {
         ScreenManager_setHeaderStatus(ctx->sm, summary->status);
         ScreenManager_setHeaderRuntime(ctx->sm, summary->runtime);
+
+        const char* r_name = (meta && meta->run_name) ? meta->run_name : "Unknown";
+        const char* status = summary->status ? summary->status : "UNKNOWN";
+
         FunctionBar_setContext(ctx->funcBar, 
-            "State: %s | Runtime: %.0fs | Step: %d", 
-            summary->status ? summary->status : "UNKNOWN", 
+            " Run: %s | State: %s | Runtime: %.0fs | Step: %d", 
+            r_name,
+            status, 
             summary->runtime, 
             summary->step
         );
+
+        // If the experiment is done, there is no need to reload files every second.
+        // This saves CPU and prevents selection glitches.
+        if (strcmp(status, "FINISHED") == 0 || 
+            strcmp(status, "FAILED") == 0 || 
+            strcmp(status, "CRASHED") == 0 || 
+            strcmp(status, "STOPPED") == 0) {
+            
+            // Passing NULL disables the timer in ScreenManager
+            ScreenManager_setRefreshCallback(ctx->sm, NULL, NULL);
+        }
    }
    
    Storage_freeRunSummary(summary);
@@ -108,13 +125,13 @@ void runTUI(const char* expml_dir) {
    // 4. Create Panels
    // Widths: Left=35, Right=35, Middle=Auto(0)
    Panel* runPanel = RunPanel_new(0, 0, 0, 0);
-   ScreenManager_addPanel(sm, runPanel, 35);
+   ScreenManager_addPanel(sm, runPanel, SIDEBAR_DEFAULT_WIDTH);
 
    Panel* metricsPanel = MetricsPanel_new(0, 0, 0, 0);
    ScreenManager_addPanel(sm, metricsPanel, 0);
    
    Panel* systemPanel = SystemPanel_new(0, 0, 0, 0);
-   ScreenManager_addPanel(sm, systemPanel, 35);
+   ScreenManager_addPanel(sm, systemPanel, SIDEBAR_DEFAULT_WIDTH);
 
    AppContext ctx;
    ctx.run_path = run_path;

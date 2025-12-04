@@ -1,16 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "MetricsPanel.h"
+#include "Constants.h" 
 #include "SparkLine.h"
 #include "Terminal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h> 
 #include <ncurses.h>
-
-#define CARD_HEIGHT 12       
-#define MIN_CARD_WIDTH 40    
 
 // --- Internal Data Structures ---
 typedef struct {
@@ -20,6 +19,7 @@ typedef struct {
     float max_value;
     float* history;
     int history_count;
+    int color_attr;
 } MetricData;
 
 typedef struct {
@@ -37,6 +37,7 @@ typedef struct {
 } MetricsState;
 
 // --- Helper Functions ---
+static void MetricsPanel_reflow(Panel* p);
 
 static void MetricsPanel_cleanupRow(void* data) {
     MetricRow* row = (MetricRow*)data;
@@ -46,16 +47,31 @@ static void MetricsPanel_cleanupRow(void* data) {
     }
 }
 
+static void MetricsPanel_handleResize(Panel* p, int w, int h) {
+    (void)h;
+    MetricsState* state = (MetricsState*)Panel_getUserData(p);
+    if (!state) return;
+    
+    // Check if column count needs to change
+    int new_columns = w / METRIC_MIN_WIDTH;
+    if (new_columns < 1) new_columns = 1;
+    
+    // Only reflow if layout actually changes (optimization)
+    if (new_columns != state->columns || state->total_count > 0) {
+        MetricsPanel_reflow(p);
+    }
+}
+
 static void MetricsPanel_reflow(Panel* p) {
     MetricsState* state = (MetricsState*)Panel_getUserData(p);
     if (!state) return;
 
     state->last_width = p->w;
-    state->columns = p->w / MIN_CARD_WIDTH;
+    state->columns = p->w / METRIC_MIN_WIDTH;
     if (state->columns < 1) state->columns = 1;
     
     Panel_clear(p);
-    Panel_setItemHeight(p, CARD_HEIGHT);
+    Panel_setItemHeight(p, METRIC_CARD_HEIGHT);
 
     for (int i = 0; i < state->total_count; i += state->columns) {
         MetricRow* row = malloc(sizeof(MetricRow));
@@ -101,26 +117,14 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     if (!m) return;
 
     // --- Colors ---
-    // Use strictly defined Terminal_colors to avoid unknown backgrounds
     int border_color = selected ? (int)(Terminal_colors[TEXT_BRIGHT] | A_BOLD) 
                                 : (int)Terminal_colors[PANEL_BORDER];
     int text_color   = Terminal_colors[TEXT_NORMAL];
     int value_color  = Terminal_colors[TEXT_BRIGHT];
     int dim_color    = Terminal_colors[TEXT_DIM];
-    
-    // Cycle through safe foreground colors for charts
-    int base_colors[] = {
-        Terminal_colors[GRAPH_LINE],              // Usually Green/Cyan
-        Terminal_colors[PANEL_HEADER],            // Usually Blue
-        Terminal_colors[TEXT_BRIGHT] | A_BOLD,    // Bright White
-        Terminal_colors[GRAPH_LINE] | A_DIM       // Dimmed Graph Color
-    };
-    
-    int color_pick = 0;
-    if (m->name && strlen(m->name) > 0) {
-        color_pick = (m->name[0] + m->name[strlen(m->name)-1]) % 4; 
-    }
-    int chart_color = base_colors[color_pick];
+
+    // Use the persistent, absolute-index color
+    int chart_color = m->color_attr;
 
     // 1. Draw Container Border
     attron(border_color);
@@ -133,6 +137,12 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     mvaddch(y + h - 1, x, ACS_LLCORNER);
     mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
     attroff(border_color);
+
+    // This wipes any old text from previous charts to prevent "losshW_xh" artifacts.
+    // We wipe from x+1 (inside border) to w-2 (inner width).
+    attron(text_color);
+    mvhline(y + 1, x + 1, ' ', w - 2); 
+    attroff(text_color);
 
     // 2. Header & Value
     attron(selected ? (int)Terminal_colors[PANEL_HEADER] : (int)(text_color | A_BOLD));
@@ -155,6 +165,8 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
     attroff(dim_color);
 
     // 4. CHART AREA
+    // Since height is fixed at 12, we can rely on that, 
+    // but passing 'h' is still good practice.
     int graph_h = h - 6; 
     int graph_w = w - 8; 
     int graph_x = x + 6; 
@@ -179,6 +191,10 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
 
         // --- SMART X-AXIS LABELS ---
         int label_y = y + h - 2;
+        
+        // [FIX] Clear the label row to prevent "100 1005 200" ghosting artifacts
+        mvhline(label_y, graph_x, ' ', graph_w); 
+        
         int max_labels = graph_w / 8; // Density control
         if (max_labels < 2) max_labels = 2;
         
@@ -223,13 +239,6 @@ static void draw_card(MetricData* m, int y, int x, int w, int h, bool selected) 
 
 static void MetricsPanel_drawItem(Panel* panel, int index, int y, int x, int w, bool row_selected) {
     MetricsState* state = (MetricsState*)Panel_getUserData(panel);
-    
-    // Handle width change on redraw
-    if (state->last_width != w) {
-        state->columns = w / MIN_CARD_WIDTH;
-        if(state->columns < 1) state->columns = 1;
-        state->last_width = w;
-    }
 
     mvhline(y, x, ' ', w); 
 
@@ -257,7 +266,7 @@ static void MetricsPanel_drawItem(Panel* panel, int index, int y, int x, int w, 
              is_card_focused = (i == row->count - 1);
         }
 
-        draw_card(row->metrics[i], y, card_x, current_card_w, CARD_HEIGHT, is_card_focused);
+        draw_card(row->metrics[i], y, card_x, current_card_w, METRIC_CARD_HEIGHT, is_card_focused);
     }
 }
 
@@ -271,41 +280,57 @@ static HandlerResult MetricsPanel_handleKey(Panel* p, int key) {
     if (!item || !item->data) return IGNORED;
     MetricRow* current_row = (MetricRow*)item->data;
 
-    if (key == 'm') { // Left / Previous Metric
+    // --- LEFT NAVIGATION ---
+    if (key == KEY_LEFT) { 
         if (state->selected_col > 0) {
+            // Move left within the same row
             state->selected_col--;
+            Panel_setNeedsRedraw(p);
+            return HANDLED;
         } else {
-            // Wrap to previous row
+            // At start of row. Try to wrap to previous row.
             if (current_row_idx > 0) {
                 Panel_setSelected(p, current_row_idx - 1);
                 PanelItem* prev_item = Panel_getSelected(p);
                 MetricRow* prev_row = (MetricRow*)prev_item->data;
+                // Go to last column of previous row
                 state->selected_col = prev_row->count - 1;
+                Panel_setNeedsRedraw(p);
+                return HANDLED;
+            } else {
+                // At Top-Left (0,0). Ignore so ScreenManager switches panel.
+                return IGNORED;
             }
         }
-        Panel_setNeedsRedraw(p);
-        return HANDLED; 
     }
     
-    if (key == 'n') { // Right / Next Metric
+    // --- RIGHT NAVIGATION ---
+    if (key == KEY_RIGHT) { 
         if (state->selected_col < current_row->count - 1) {
+            // Move right within the same row
             state->selected_col++;
+            Panel_setNeedsRedraw(p);
+            return HANDLED;
         } else {
-            // Wrap to next row
+            // At end of row. Try to wrap to next row.
             if (current_row_idx < total_rows - 1) {
                 Panel_setSelected(p, current_row_idx + 1);
+                // Go to first column of next row
                 state->selected_col = 0;
+                Panel_setNeedsRedraw(p);
+                return HANDLED;
+            } else {
+                // At Bottom-Right (Last, Last). Ignore so ScreenManager switches panel.
+                return IGNORED;
             }
         }
-        Panel_setNeedsRedraw(p);
-        return HANDLED; 
     }
     
     return IGNORED;
 }
 
 Panel* MetricsPanel_new(int x, int y, int w, int h) {
-    Panel* p = Panel_new(x, y, w, h, "Metrics [Grid]");
+    Panel* p = Panel_new(x, y, w, h, "Metrics");
     if (!p) return NULL;
 
     MetricsState* state = calloc(1, sizeof(MetricsState));
@@ -319,7 +344,8 @@ Panel* MetricsPanel_new(int x, int y, int w, int h) {
     Panel_setDrawItem(p, MetricsPanel_drawItem);
     Panel_setCleanupCallback(p, MetricsPanel_cleanupRow); 
     Panel_setEventHandler(p, MetricsPanel_handleKey);
-    Panel_setItemHeight(p, CARD_HEIGHT);
+    Panel_setItemHeight(p, METRIC_CARD_HEIGHT);
+    Panel_setResizeCallback(p, MetricsPanel_handleResize);
     
     return p;
 }
@@ -359,6 +385,16 @@ void MetricsPanel_addMetric(Panel* panel, const char* name, float current_val, c
     if (m->min_value == m->max_value) {
         m->max_value += 0.0001; 
     }
+
+    // 1. Get the absolute index (current total count)
+    int abs_index = state->total_count;
+
+    // 2. Modulo by palette size (defined in Terminal.h as 10)
+    int palette_idx = abs_index % CHART_PALETTE_SIZE;
+    
+    // 3. Retrieve the actual ncurses attribute for this color slot
+    // CHART_COLOR_1 is the enum start. We add the offset.
+    m->color_attr = Terminal_colors[CHART_COLOR_1 + palette_idx];
 
     if (state->total_count >= state->capacity) {
         state->capacity *= 2;

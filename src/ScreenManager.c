@@ -1,6 +1,7 @@
 #include "Panel.h"
 #include "Header.h"
 #include "Terminal.h"
+#include "Constants.h" 
 #include "FunctionBar.h" 
 #include "ScreenManager.h"
 
@@ -52,12 +53,22 @@ static void drawInstructions(void) {
     mvprintw(instruction_y, 2, "Hint:");
     attroff(Terminal_colors[TEXT_BRIGHT]);
 
+    // Line 1: Navigation
     attron(Terminal_colors[TEXT_DIM]);
     mvprintw(instruction_y + 1, 2, "/");
     attron(A_BOLD);
     printw(" press Tab ");
     attroff(A_BOLD);
     printw("to switch panels");
+    attroff(Terminal_colors[TEXT_DIM]);
+
+    // Line 2: Manual Refresh (New)
+    attron(Terminal_colors[TEXT_DIM]);
+    mvprintw(instruction_y + 2, 2, "/");
+    attron(A_BOLD);
+    printw(" press Ctrl+L ");
+    attroff(A_BOLD);
+    printw("for manual refresh");
     attroff(Terminal_colors[TEXT_DIM]);
 }
 
@@ -67,7 +78,7 @@ ScreenManager* ScreenManager_new(const char* header_text, double refresh_interva
     if (!this) return NULL;
     
     this->x1 = 1;
-    this->y1 = 7;
+    this->y1 = 8;
     this->x2 = -1;
     this->y2 = -2;
     this->layouts = NULL;
@@ -156,34 +167,82 @@ void ScreenManager_resize(ScreenManager* this) {
     
     int y_start = this->y1;
     int height = LINES + this->y2 - y_start + 1; 
-    int total_width = COLS - this->x1 + this->x2;
-    int used_width = 0;
+    int total_available_width = COLS - this->x1 + this->x2;
+    
+    // --- Step 1: Analyze Requests ---
+    int total_fixed_requested = 0;
     int dynamic_panels = 0;
     
-    // Calculate how much width is taken by fixed-width panels
     for (size_t i = 0; i < this->panel_count; i++) {
         if (this->layouts[i].requested_width > 0) {
-            used_width += this->layouts[i].requested_width;
+            total_fixed_requested += this->layouts[i].requested_width;
         } else {
             dynamic_panels++;
         }
     }
     
-    // Distribute remaining width among dynamic panels
-    int flexible_width = 0;
+    // --- Step 2: Calculate Compression ---
+    // We want to ensure dynamic panels get at least MAIN_PANEL_MIN_WIDTH
+    double compression_ratio = 1.0;
+    
+    // If we have dynamic panels, check if they are being squeezed too much
     if (dynamic_panels > 0) {
-        flexible_width = (total_width - used_width) / dynamic_panels;
-        if (flexible_width < 1) flexible_width = 1; // Minimum safety
+        int space_for_dynamic = total_available_width - total_fixed_requested;
+        
+        if (space_for_dynamic < MAIN_PANEL_MIN_WIDTH) {
+            // Not enough space! We need to shrink the fixed panels.
+            // Calculate how much space fixed panels are ALLOWED to take.
+            int max_allowed_fixed = total_available_width - MAIN_PANEL_MIN_WIDTH;
+            
+            // Calculate ratio to scale fixed panels down
+            if (total_fixed_requested > 0) {
+                compression_ratio = (double)max_allowed_fixed / total_fixed_requested;
+            }
+        }
     }
 
+    // --- Step 3: Apply Layout ---
+    // First pass: Calculate actual used width for fixed panels based on compression
+    int* calculated_widths = malloc(this->panel_count * sizeof(int));
+    int final_fixed_total = 0;
+    
+    for (size_t i = 0; i < this->panel_count; i++) {
+        int req = this->layouts[i].requested_width;
+        if (req > 0) {
+            // Apply compression
+            int w = (int)(req * compression_ratio);
+            
+            // Enforce hard minimum for sidebars
+            if (w < SIDEBAR_MIN_WIDTH) w = SIDEBAR_MIN_WIDTH;
+            
+            // Safety: Don't exceed total screen width
+            if (w > total_available_width) w = total_available_width;
+
+            calculated_widths[i] = w;
+            final_fixed_total += w;
+        } else {
+            calculated_widths[i] = 0; // Dynamic, calculate next
+        }
+    }
+
+    // Calculate space remaining for dynamic panels
+    int remaining_width = total_available_width - final_fixed_total;
+    int flexible_width = 0;
+    if (dynamic_panels > 0) {
+        if (remaining_width < 1) remaining_width = 1; // Prevent 0 width
+        flexible_width = remaining_width / dynamic_panels;
+    }
+
+    // Second pass: Position and resize everything
     int current_x = this->x1;    
     for (size_t i = 0; i < this->panel_count; i++) {
-        int w = this->layouts[i].requested_width;
+        int w = calculated_widths[i];
         
-        if (w <= 0) {
-            // Last dynamic panel gets all remaining space
-            if (i == this->panel_count - 1) {
-                w = COLS - current_x;
+        if (this->layouts[i].requested_width <= 0) {
+            // This is a dynamic panel
+            if (i == this->panel_count - 1 && dynamic_panels == 1) {
+                // Last panel gets the rest of the screen (fixes rounding errors)
+                w = total_available_width - (current_x - this->x1);
             } else {
                 w = flexible_width;
             }
@@ -195,6 +254,8 @@ void ScreenManager_resize(ScreenManager* this) {
         Panel_setDrawRightSeparator(this->layouts[i].panel, draw_right_sep);
         current_x += w;
     }
+    
+    free(calculated_widths);
 }
 
 // Sets focus to the panel at the specified index
@@ -243,7 +304,7 @@ void ScreenManager_forceRedraw(ScreenManager* this) {
 static void drawHelp(ScreenManager* this) {
     (void)this;  // Suppress unused parameter warning
     int w = 50;
-    int h = 14;
+    int h = 16;
     int x = (COLS - w) / 2;
     int y = (LINES - h) / 2;
 
@@ -285,6 +346,7 @@ static void drawHelp(ScreenManager* this) {
     text_y++;
     mvprintw(text_y++, text_x, "  h            : Help");
     mvprintw(text_y++, text_x, "  q            : Quit");
+    mvprintw(text_y++, text_x, "  Ctrl+L       : Force Redraw");
     
     text_y++;
 
@@ -317,7 +379,22 @@ int ScreenManager_run(ScreenManager* this) {
         } 
         else if (ch != ERR) {
             bool handled = false;
+            
+            // 1. Global Keys (Highest Priority)
             if (ch == KEY_RESIZE) {
+                endwin();  // Temporarily exit ncurses mode
+                refresh(); // Restore it (this forces ncurses to re-read terminal dims)
+
+                Terminal_resetColors(); 
+                clear();
+                ScreenManager_resize(this);
+                force_redraw = true;
+                handled = true;
+            } else if (ch == 12) { // Ctrl+L (Force Redraw)
+                endwin();
+                refresh();
+                Terminal_resetColors(); // Restore RGB colors
+                clear();                // Wipe artifacts
                 ScreenManager_resize(this);
                 force_redraw = true;
                 handled = true;
@@ -333,24 +410,34 @@ int ScreenManager_run(ScreenManager* this) {
                 ScreenManager_setFocus(this, next);
                 force_redraw = true; 
                 handled = true;
-            } else if (ch == KEY_RIGHT && this->allow_focus_change) {
-                 if (this->focused < this->panel_count - 1) {
-                    ScreenManager_setFocus(this, this->focused + 1);
-                    force_redraw = true;
-                    handled = true;
-                 }
-            } else if (ch == KEY_LEFT && this->allow_focus_change) {
-                 if (this->focused > 0) {
-                    ScreenManager_setFocus(this, this->focused - 1);
-                    force_redraw = true;
-                    handled = true;
-                 }
             }
-        
+
+            // 2. Offer key to the Focused Panel (Edge Bumping Logic)
+            // If the panel uses the key (e.g., Metrics moving selection), it returns true.
+            // If the panel hits an edge or doesn't use it, it returns false.
             if (!handled && this->panel_count > 0) {
                 Panel* p = this->layouts[this->focused].panel;
                 if (Panel_onKey(p, ch)) {
-                    // Panel handled the key
+                    handled = true; // Panel consumed the key
+                }
+            }
+            
+            // 3. ScreenManager Navigation (Fallback)
+            // If the panel ignored the arrow key (e.g., RunPanel, or Metrics at edge),
+            // we switch focus here.
+            if (!handled) {
+                if (ch == KEY_RIGHT && this->allow_focus_change) {
+                     if (this->focused < this->panel_count - 1) {
+                        ScreenManager_setFocus(this, this->focused + 1);
+                        force_redraw = true;
+                        handled = true;
+                     }
+                } else if (ch == KEY_LEFT && this->allow_focus_change) {
+                     if (this->focused > 0) {
+                        ScreenManager_setFocus(this, this->focused - 1);
+                        force_redraw = true;
+                        handled = true;
+                     }
                 }
             }
         }

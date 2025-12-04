@@ -46,8 +46,13 @@ Panel* Panel_new(int x, int y, int w, int h, const char* header) {
     this->draw_item = NULL;
     this->cleanup_item = NULL;
     this->user_data = NULL;
+    this->on_resize = NULL;
     
     return this;
+}
+
+void Panel_setResizeCallback(Panel* this, Panel_OnResize callback) {
+    if (this) { this->on_resize = callback; }
 }
 
 void Panel_delete(Panel* this) {
@@ -96,9 +101,19 @@ void Panel_move(Panel* this, int x, int y) {
 
 void Panel_resize(Panel* this, int w, int h) {
     if (!this) { return; }
-    this->w = w;
-    this->h = h;
-    this->needs_redraw = true;
+    
+    // Only trigger if dimensions actually changed
+    if (this->w != w || this->h != h) {
+        this->w = w;
+        this->h = h;
+        
+        // Trigger the callback if set
+        if (this->on_resize) {
+            this->on_resize(this, w, h);
+        }
+        
+        this->needs_redraw = true;
+    }
 }
 
 void Panel_setItemHeight(Panel* this, int h) {
@@ -346,6 +361,8 @@ void Panel_draw(Panel* this, bool force_redraw) {
 
 bool Panel_onKey(Panel* this, int key) {
     if (!this) { return false; }
+
+    // 1. Custom Event Handler (e.g., MetricsPanel)
     if (this->event_handler) {
         HandlerResult result = this->event_handler(this, key);
         if (result & HANDLED) {
@@ -382,17 +399,6 @@ bool Panel_onKey(Panel* this, int key) {
         case KEY_END:
             this->selected = size - 1;
             break;
-        case KEY_LEFT:
-            if (this->scroll_h > 0) {
-                this->scroll_h -= 5;
-                if (this->scroll_h < 0) {
-                    this->scroll_h = 0;
-                }
-            }
-            break;
-        case KEY_RIGHT:
-            this->scroll_h += 5;
-            break;
     }
     
     this->selected = CLAMP(this->selected, 0, size - 1);
@@ -401,7 +407,9 @@ bool Panel_onKey(Panel* this, int key) {
         this->needs_redraw = true;
     }
     
-    return true;
+    // Returns true if we did something (UP/DOWN etc), false otherwise
+    return (key == KEY_UP || key == KEY_DOWN || key == KEY_PPAGE || 
+            key == KEY_NPAGE || key == KEY_HOME || key == KEY_END);
 }
 
 void Panel_setNeedsRedraw(Panel* this) {

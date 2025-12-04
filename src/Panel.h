@@ -11,6 +11,12 @@ typedef HandlerResult (*Panel_EventHandler)(Panel*, int key);
 typedef void (*Panel_DrawItem)(Panel* panel, int index, int y, int x, int w, bool selected);
 typedef void (*Panel_ItemCleanup)(void* data);
 
+// Add this typedef
+typedef void (*Panel_OnResize)(Panel* p, int w, int h);
+
+// Add this function declaration
+void Panel_setResizeCallback(Panel* this, Panel_OnResize callback);
+
 typedef struct PanelItem_ {
    char* text;
    void* data;
@@ -34,6 +40,7 @@ struct Panel_ {
    Panel_DrawItem draw_item;
    Panel_ItemCleanup cleanup_item;
    void* user_data;
+   Panel_OnResize on_resize; 
 };
 
 Panel* Panel_new(int x, int y, int w, int h, const char* header);

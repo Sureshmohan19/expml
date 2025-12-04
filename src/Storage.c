@@ -37,6 +37,26 @@ static char* readFileToString(const char* filepath) {
     return content;
 }
 
+// Helper: Extracts the folder name from a full path (e.g., "/tmp/run-123" -> "run-123")
+static char* extractFolderName(const char* path) {
+    if (!path) return strdup("unknown");
+    
+    // Create a copy because we might need to modify it (strip trailing slash)
+    char* copy = strdup(path);
+    size_t len = strlen(copy);
+    
+    // Remove trailing slash if present (e.g., "run-123/")
+    if (len > 1 && copy[len-1] == '/') {
+        copy[len-1] = '\0';
+    }
+    
+    char* base = strrchr(copy, '/');
+    char* result = strdup(base ? base + 1 : copy);
+    
+    free(copy);
+    return result;
+}
+
 // Builds a file path by concatenating directory and filename with a separator
 static char* buildPath(const char* dir, const char* filename) {
     size_t len = strlen(dir) + strlen(filename) + 2; 
@@ -153,7 +173,12 @@ RunMetadata* Storage_readMetadata(const char* run_dir) {
 
     // Extract all string fields with defaults
     meta->run_id = getJsonString(json, "id", "unknown");
-    meta->run_name = getJsonString(json, "name", "unknown");
+    
+    // LOGIC CHANGE: If "name" is missing in JSON, use the directory name (e.g. "run-2025...")
+    char* folder_name = extractFolderName(run_dir);
+    meta->run_name = getJsonString(json, "name", folder_name); 
+    free(folder_name);
+
     meta->user = getJsonString(json, "user", NULL);
     meta->host = getJsonString(json, "host", NULL);
     meta->os = getJsonString(json, "os", NULL);

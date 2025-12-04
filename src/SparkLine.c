@@ -61,6 +61,14 @@ void Sparkline_draw(const float* values, size_t count, int y, int x, int width, 
     int prev_vy = -1;
 
     for (size_t i = 0; i < count; i++) {
+        // If metric is NaN or Inf, skip it to avoid crashes or wild drawing
+        if (!isfinite(values[i])) {
+            // Optional: Break the line by resetting prev pointers
+            prev_vx = -1; 
+            prev_vy = -1;
+            continue;
+        }
+        
         // Project X: map index to virtual width
         int vx = (int)((double)i * (v_width - 1) / (count - 1));
         
